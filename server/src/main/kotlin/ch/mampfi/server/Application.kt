@@ -1,6 +1,7 @@
 package ch.mampfi.server
 
 import io.ktor.http.*
+import io.ktor.http.content.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
@@ -12,6 +13,7 @@ import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.util.cio.writeChannel
 import io.ktor.utils.io.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -30,13 +32,17 @@ import java.util.UUID
 
 fun main() = embeddedServer(Netty, port = System.getenv("PORT")?.toIntOrNull() ?: 8080) { module() }.start(wait = true)
 
-fun Application.module() {
-    val uploads = File(System.getenv("UPLOAD_DIR") ?: "uploads").apply { mkdirs() }
-    val repository = MealRepository(System.getenv("DATABASE_URL") ?: "mampfi.db")
+fun Application.module(
+    databasePath: String = System.getenv("DATABASE_URL") ?: "mampfi.db",
+    uploadDirectory: File = File(System.getenv("UPLOAD_DIR") ?: "uploads")
+) {
+    val uploads = uploadDirectory.apply { mkdirs() }
+    val repository = MealRepository(databasePath)
+    val logger = environment.log
     install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; encodeDefaults = true }) }
     install(CORS) { anyHost(); allowMethod(HttpMethod.Delete); allowMethod(HttpMethod.Put); allowHeader(HttpHeaders.ContentType) }
     install(StatusPages) { exception<Throwable> { call, cause ->
-        environment.log.error("Unerwarteter Fehler", cause)
+        logger.error("Unerwarteter Fehler", cause)
         call.respond(HttpStatusCode.InternalServerError, mapOf("fehler" to "Serverfehler"))
     } }
     routing {
@@ -68,7 +74,8 @@ fun Application.module() {
             val filename = "${UUID.randomUUID()}.$extension"
             part.provider().copyAndClose(File(uploads, filename).writeChannel())
             part.dispose()
-            call.respond(mapOf("url" to "${call.request.origin.scheme}://${call.request.host()}:${call.request.port()}/uploads/$filename"))
+            val local = call.request.local
+            call.respond(mapOf("url" to "${local.scheme}://${local.serverHost}:${local.serverPort}/uploads/$filename"))
         }
     }
 }
