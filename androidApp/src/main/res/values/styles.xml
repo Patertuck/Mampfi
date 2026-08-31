@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.Mampfi" parent="android:style/Theme.Material.Light.NoActionBar" />
+</resources>
