@@ -22,7 +22,7 @@ import java.time.LocalDate
 import java.util.UUID
 
 @Serializable data class MahlzeitBild(val url: String, val datum: String)
-@Serializable data class MahlzeitBewertung(val wert: Double, val datum: String)
+@Serializable data class MahlzeitBewertung(val werte: List<Double>, val datum: String)
 @Serializable data class Mahlzeit(
     val id: String = UUID.randomUUID().toString(), val name: String,
     val rezeptLink: String? = null, val tags: List<String> = emptyList(),
@@ -30,7 +30,9 @@ import java.util.UUID
     val bewertungen: List<MahlzeitBewertung> = emptyList()
 )
 
-fun main() = embeddedServer(Netty, port = System.getenv("PORT")?.toIntOrNull() ?: 8080) { module() }.start(wait = true)
+fun main() {
+    embeddedServer(Netty, port = System.getenv("PORT")?.toIntOrNull() ?: 8080) { module() }.start(wait = true)
+}
 
 fun Application.module(
     databasePath: String = System.getenv("DATABASE_URL") ?: "mampfi.db",
@@ -84,6 +86,7 @@ private fun validate(meal: Mahlzeit): Map<String, String>? = when {
     meal.name.isBlank() -> mapOf("fehler" to "Name darf nicht leer sein")
     meal.termine.any { runCatching { LocalDate.parse(it) }.isFailure } -> mapOf("fehler" to "Ungültiges Datum")
     meal.termine.distinct().size != meal.termine.size -> mapOf("fehler" to "Termin darf nicht doppelt vorkommen")
-    meal.bewertungen.any { it.wert !in 1.0..10.0 } -> mapOf("fehler" to "Bewertung muss zwischen 1 und 10 liegen")
+    meal.bewertungen.any { it.werte.size != 2 } -> mapOf("fehler" to "Jede Bewertung braucht genau zwei Werte")
+    meal.bewertungen.any { bewertung -> bewertung.werte.any { it !in 1.0..10.0 } } -> mapOf("fehler" to "Bewertung muss zwischen 1 und 10 liegen")
     else -> null
 }

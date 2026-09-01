@@ -23,7 +23,14 @@ class MealApiTest {
         assertEquals(HttpStatusCode.BadRequest, emptyName.status)
         assertContains(emptyName.bodyAsText(), "Name darf nicht leer sein")
 
-        val meal = """{"id":"pasta","name":"Pasta","tags":["VEGETARISCH"],"termine":["2026-09-01"],"bewertungen":[{"wert":8.5,"datum":"2026-09-01"}]}"""
+        val singleRating = client.post("/api/mahlzeiten") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"id":"single-rating","name":"Pasta","bewertungen":[{"werte":[8.5],"datum":"2026-09-01"}]}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, singleRating.status)
+        assertContains(singleRating.bodyAsText(), "genau zwei Werte")
+
+        val meal = """{"id":"pasta","name":"Pasta","tags":["VEGETARISCH"],"termine":["2026-09-01"],"bewertungen":[{"werte":[8.5,9.0],"datum":"2026-09-01"}]}"""
         assertEquals(HttpStatusCode.Created, client.post("/api/mahlzeiten") {
             contentType(ContentType.Application.Json)
             setBody(meal)
