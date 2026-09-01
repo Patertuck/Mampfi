@@ -9,6 +9,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -44,6 +45,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @Composable
@@ -72,7 +74,11 @@ fun MampfiApp(vm: MealViewModel) = MampfiTheme {
         },
     ) { padding ->
         NavHost(nav, "kalender", Modifier.padding(padding)) {
-            composable("kalender") { CalendarScreen(vm.meals.collectAsState().value) { nav.navigate("bearbeiten/$it") } }
+            composable("kalender") { CalendarScreen(
+                meals = vm.meals.collectAsState().value,
+                open = { nav.navigate("bearbeiten/$it") },
+                edit = { meal, date -> nav.navigate("bearbeiten/$date?meal=${meal.id}") },
+            ) }
             composable("uebersicht") { OverviewScreen(vm.meals.collectAsState().value) { meal -> nav.navigate("bearbeiten/${meal.letzterTermin() ?: LocalDate.now()}?meal=${meal.id}") } }
             composable("bearbeiten/{date}?meal={meal}") { entry -> EditScreen(vm, LocalDate.parse(entry.arguments!!.getString("date")!!), entry.arguments?.getString("meal")) { nav.popBackStack() } }
         }
@@ -80,7 +86,7 @@ fun MampfiApp(vm: MealViewModel) = MampfiTheme {
 }
 
 @Composable
-private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit) {
+private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edit: (Mahlzeit, LocalDate) -> Unit) {
     val currentMonth = remember { YearMonth.now() }
     val monthState = rememberCalendarState(currentMonth.minusMonths(24), currentMonth.plusMonths(24), currentMonth, java.time.DayOfWeek.MONDAY)
     val weekState = rememberWeekCalendarState(
@@ -90,7 +96,17 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit) {
         firstDayOfWeek = java.time.DayOfWeek.MONDAY,
     )
     var showMonth by rememberSaveable { mutableStateOf(false) }
+    var selectedWeekDate by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
+    var receivedInitialWeek by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    LaunchedEffect(weekState) {
+        snapshotFlow { weekState.firstVisibleWeek.days.first().date }
+            .distinctUntilChanged()
+            .collect { monday ->
+                if (receivedInitialWeek) selectedWeekDate = monday.toString() else receivedInitialWeek = true
+            }
+    }
+    val selectedDate = LocalDate.parse(selectedWeekDate)
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             SegmentedButton(
@@ -123,9 +139,18 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit) {
             HorizontalCalendar(state = monthState, monthHeader = { month -> CalendarMonthHeader(month.yearMonth) }, dayContent = { day -> CalendarCell(day, meals.filter { day.date.toString() in it.termine }, open) })
         } else {
             WeekCalendar(
+                modifier = Modifier.height(158.dp),
                 state = weekState,
                 weekHeader = { week -> CalendarWeekHeader(week.days.first().date, week.days.last().date) },
-                dayContent = { day -> WeekCalendarCell(day.date, meals.filter { day.date.toString() in it.termine }, open) },
+                dayContent = { day -> WeekCalendarCell(day.date, meals.count { day.date.toString() in it.termine }, day.date == selectedDate) { selectedWeekDate = day.date.toString() } },
+            )
+            Spacer(Modifier.height(12.dp))
+            WeekAgenda(
+                date = selectedDate,
+                meals = meals.filter { selectedDate.toString() in it.termine },
+                plan = { open(selectedDate) },
+                edit = { meal -> edit(meal, selectedDate) },
+                modifier = Modifier.weight(1f),
             )
         }
     }
@@ -143,8 +168,8 @@ private fun CalendarMonthHeader(month: YearMonth) {
 @Composable
 private fun CalendarWeekHeader(start: LocalDate, end: LocalDate) {
     Column(Modifier.padding(bottom = 8.dp)) {
-        Text("${start.format(DateTimeFormatter.ofPattern("d. MMMM", Locale.GERMAN))} – ${end.format(DateTimeFormatter.ofPattern("d. MMMM yyyy", Locale.GERMAN))}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-        Spacer(Modifier.height(12.dp))
+        Text("${start.format(DateTimeFormatter.ofPattern("d. MMMM", Locale.GERMAN))} – ${end.format(DateTimeFormatter.ofPattern("d. MMMM yyyy", Locale.GERMAN))}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth()) { listOf("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").forEach { day -> Text(day, Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary) } }
     }
 }
@@ -155,8 +180,64 @@ private fun CalendarCell(day: CalendarDay, meals: List<Mahlzeit>, open: (LocalDa
 }
 
 @Composable
-private fun WeekCalendarCell(date: LocalDate, meals: List<Mahlzeit>, open: (LocalDate) -> Unit) {
-    CalendarDayCell(date, true, meals, open)
+private fun WeekCalendarCell(date: LocalDate, mealCount: Int, selected: Boolean, select: () -> Unit) {
+    val today = date == LocalDate.now()
+    Surface(
+        modifier = Modifier.fillMaxWidth().height(82.dp).padding(horizontal = 2.dp, vertical = 3.dp).clip(MaterialTheme.shapes.medium).clickable(onClick = select),
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        border = if (today || selected) BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary) else null,
+    ) {
+        Column(Modifier.padding(vertical = 7.dp, horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.GERMAN), style = MaterialTheme.typography.labelSmall, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            if (mealCount > 0) {
+                Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.extraSmall) {
+                    Text(mealCount.toString(), Modifier.padding(horizontal = 6.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, plan: () -> Unit, edit: (Mahlzeit) -> Unit, modifier: Modifier = Modifier) {
+    Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Text(date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM", Locale.GERMAN)), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(if (meals.isEmpty()) "Noch nichts geplant" else "${meals.size} ${if (meals.size == 1) "Mahlzeit" else "Mahlzeiten"} geplant", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(16.dp))
+            if (meals.isEmpty()) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(12.dp))
+                    Text("Zeit für etwas Leckeres.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Plane eine Mahlzeit für diesen Tag.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                }
+            } else {
+                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(meals, key = { it.id }) { meal -> WeekAgendaMealCard(meal) { edit(meal) } }
+                }
+            }
+            Button(onClick = plan, modifier = Modifier.fillMaxWidth()) { Text("Mahlzeit planen") }
+        }
+    }
+}
+
+@Composable
+private fun WeekAgendaMealCard(meal: Mahlzeit, click: () -> Unit) = Card(
+    modifier = Modifier.fillMaxWidth().clickable(onClick = click),
+    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+) {
+    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        meal.letztesBild()?.let { AsyncImage(it, null, Modifier.size(64.dp).clip(MaterialTheme.shapes.small)) }
+        Column(Modifier.padding(start = if (meal.letztesBild() == null) 0.dp else 12.dp).weight(1f)) {
+            Text(meal.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            meal.tags.takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · ") { tag -> Tag.entries.find { it.name == tag }?.label ?: tag }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        meal.durchschnitt()?.let { Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) { Text(String.format(Locale.GERMANY, "%.1f", it), Modifier.padding(horizontal = 8.dp, vertical = 5.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer) } }
+    }
 }
 
 @Composable
