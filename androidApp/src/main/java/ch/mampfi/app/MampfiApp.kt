@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.ViewList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,7 +33,9 @@ import androidx.navigation.compose.*
 import ch.mampfi.app.data.*
 import coil3.compose.AsyncImage
 import com.kizitonwose.calendar.compose.HorizontalCalendar
+import com.kizitonwose.calendar.compose.WeekCalendar
 import com.kizitonwose.calendar.compose.rememberCalendarState
+import com.kizitonwose.calendar.compose.weekcalendar.rememberWeekCalendarState
 import com.kizitonwose.calendar.core.CalendarDay
 import com.kizitonwose.calendar.core.DayPosition
 import java.io.ByteArrayInputStream
@@ -41,6 +44,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @Composable
 fun MampfiApp(vm: MealViewModel) = MampfiTheme {
@@ -78,18 +82,52 @@ fun MampfiApp(vm: MealViewModel) = MampfiTheme {
 @Composable
 private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit) {
     val currentMonth = remember { YearMonth.now() }
-    val state = rememberCalendarState(currentMonth.minusMonths(24), currentMonth.plusMonths(24), currentMonth, java.time.DayOfWeek.MONDAY)
+    val monthState = rememberCalendarState(currentMonth.minusMonths(24), currentMonth.plusMonths(24), currentMonth, java.time.DayOfWeek.MONDAY)
+    val weekState = rememberWeekCalendarState(
+        startDate = currentMonth.minusMonths(24).atDay(1),
+        endDate = currentMonth.plusMonths(24).atEndOfMonth(),
+        firstVisibleWeekDate = LocalDate.now(),
+        firstDayOfWeek = java.time.DayOfWeek.MONDAY,
+    )
+    var showMonth by rememberSaveable { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) {
-            Column(Modifier.padding(20.dp)) {
-                Text("Mampfi", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
-                Text("Mahlzeiten planen", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                Text("Tippe auf einen Tag, um ein Essen einzuplanen.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-            }
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            SegmentedButton(
+                selected = !showMonth,
+                onClick = {
+                    if (showMonth) {
+                        val visibleDate = monthState.firstVisibleMonth.yearMonth.atDay(1)
+                        showMonth = false
+                        scope.launch { weekState.scrollToWeek(visibleDate) }
+                    }
+                },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                label = { Text("Woche") },
+            )
+            SegmentedButton(
+                selected = showMonth,
+                onClick = {
+                    if (!showMonth) {
+                        val visibleDate = weekState.firstVisibleWeek.days.first().date
+                        showMonth = true
+                        scope.launch { monthState.scrollToMonth(YearMonth.from(visibleDate)) }
+                    }
+                },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                label = { Text("Monat") },
+            )
         }
         Spacer(Modifier.height(16.dp))
-        HorizontalCalendar(state = state, monthHeader = { month -> CalendarMonthHeader(month.yearMonth) }, dayContent = { day -> CalendarCell(day, meals.filter { day.date.toString() in it.termine }, open) })
+        if (showMonth) {
+            HorizontalCalendar(state = monthState, monthHeader = { month -> CalendarMonthHeader(month.yearMonth) }, dayContent = { day -> CalendarCell(day, meals.filter { day.date.toString() in it.termine }, open) })
+        } else {
+            WeekCalendar(
+                state = weekState,
+                weekHeader = { week -> CalendarWeekHeader(week.days.first().date, week.days.last().date) },
+                dayContent = { day -> WeekCalendarCell(day.date, meals.filter { day.date.toString() in it.termine }, open) },
+            )
+        }
     }
 }
 
@@ -103,13 +141,31 @@ private fun CalendarMonthHeader(month: YearMonth) {
 }
 
 @Composable
+private fun CalendarWeekHeader(start: LocalDate, end: LocalDate) {
+    Column(Modifier.padding(bottom = 8.dp)) {
+        Text("${start.format(DateTimeFormatter.ofPattern("d. MMMM", Locale.GERMAN))} – ${end.format(DateTimeFormatter.ofPattern("d. MMMM yyyy", Locale.GERMAN))}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth()) { listOf("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").forEach { day -> Text(day, Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary) } }
+    }
+}
+
+@Composable
 private fun CalendarCell(day: CalendarDay, meals: List<Mahlzeit>, open: (LocalDate) -> Unit) {
-    val inMonth = day.position == DayPosition.MonthDate
-    val today = day.date == LocalDate.now()
-    val container = when { today -> MaterialTheme.colorScheme.primaryContainer; inMonth -> MaterialTheme.colorScheme.surface; else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f) }
-    Surface(Modifier.fillMaxWidth().height(88.dp).padding(3.dp).clip(MaterialTheme.shapes.medium).clickable { open(day.date) }, shape = MaterialTheme.shapes.medium, color = container, border = if (today) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
+    CalendarDayCell(day.date, day.position == DayPosition.MonthDate, meals, open)
+}
+
+@Composable
+private fun WeekCalendarCell(date: LocalDate, meals: List<Mahlzeit>, open: (LocalDate) -> Unit) {
+    CalendarDayCell(date, true, meals, open)
+}
+
+@Composable
+private fun CalendarDayCell(date: LocalDate, inCurrentRange: Boolean, meals: List<Mahlzeit>, open: (LocalDate) -> Unit) {
+    val today = date == LocalDate.now()
+    val container = when { today -> MaterialTheme.colorScheme.primaryContainer; inCurrentRange -> MaterialTheme.colorScheme.surface; else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f) }
+    Surface(Modifier.fillMaxWidth().height(88.dp).padding(3.dp).clip(MaterialTheme.shapes.medium).clickable { open(date) }, shape = MaterialTheme.shapes.medium, color = container, border = if (today) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
         Column(Modifier.padding(horizontal = 6.dp, vertical = 5.dp)) {
-            Text(day.date.dayOfMonth.toString(), style = MaterialTheme.typography.labelMedium, fontWeight = if (today) FontWeight.Bold else FontWeight.Medium, color = if (inMonth) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.labelMedium, fontWeight = if (today) FontWeight.Bold else FontWeight.Medium, color = if (inCurrentRange) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(3.dp))
             meals.take(2).forEach { meal ->
                 Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.17f), shape = MaterialTheme.shapes.extraSmall) { Text(meal.name, Modifier.fillMaxWidth().padding(horizontal = 5.dp, vertical = 2.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
