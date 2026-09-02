@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -95,9 +96,11 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
         firstVisibleWeekDate = LocalDate.now(),
         firstDayOfWeek = java.time.DayOfWeek.MONDAY,
     )
-    var showMonth by rememberSaveable { mutableStateOf(false) }
+    var calendarView by rememberSaveable { mutableStateOf("WEEK") }
     var selectedWeekDate by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
     var receivedInitialWeek by remember { mutableStateOf(false) }
+    var planInitialised by rememberSaveable { mutableStateOf(false) }
+    val planListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     LaunchedEffect(weekState) {
         snapshotFlow { weekState.firstVisibleWeek.days.first().date }
@@ -107,37 +110,52 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
             }
     }
     val selectedDate = LocalDate.parse(selectedWeekDate)
+    val planItems = remember(meals) { scheduledPlanItems(meals) }
+    val firstFuturePlanIndex = if (planItems.isEmpty()) {
+        0
+    } else {
+        val firstFutureDayIndex = planItems.indexOfFirst { it is PlanItem.Day && !it.date.isBefore(LocalDate.now()) }
+            .let { if (it >= 0) it else planItems.indexOfLast { it is PlanItem.Day }.coerceAtLeast(0) }
+        planItems.subList(0, firstFutureDayIndex + 1).indexOfLast { it is PlanItem.Month }.coerceAtLeast(0)
+    }
+    LaunchedEffect(calendarView, planItems) {
+        if (calendarView == "PLAN" && !planInitialised && planItems.isNotEmpty()) {
+            planListState.scrollToItem(firstFuturePlanIndex)
+            planInitialised = true
+        }
+    }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             SegmentedButton(
-                selected = !showMonth,
+                selected = calendarView == "WEEK",
                 onClick = {
-                    if (showMonth) {
-                        val visibleDate = monthState.firstVisibleMonth.yearMonth.atDay(1)
-                        showMonth = false
+                    if (calendarView != "WEEK") {
+                        val visibleDate = if (calendarView == "MONTH") monthState.firstVisibleMonth.yearMonth.atDay(1) else selectedDate
+                        calendarView = "WEEK"
                         scope.launch { weekState.scrollToWeek(visibleDate) }
                     }
                 },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
                 label = { Text("Woche") },
             )
             SegmentedButton(
-                selected = showMonth,
+                selected = calendarView == "MONTH",
                 onClick = {
-                    if (!showMonth) {
-                        val visibleDate = weekState.firstVisibleWeek.days.first().date
-                        showMonth = true
+                    if (calendarView != "MONTH") {
+                        val visibleDate = if (calendarView == "WEEK") weekState.firstVisibleWeek.days.first().date else selectedDate
+                        calendarView = "MONTH"
                         scope.launch { monthState.scrollToMonth(YearMonth.from(visibleDate)) }
                     }
                 },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
                 label = { Text("Monat") },
             )
+            SegmentedButton(selected = calendarView == "PLAN", onClick = { calendarView = "PLAN" }, shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3), label = { Text("Plan") })
         }
         Spacer(Modifier.height(16.dp))
-        if (showMonth) {
+        if (calendarView == "MONTH") {
             HorizontalCalendar(state = monthState, monthHeader = { month -> CalendarMonthHeader(month.yearMonth) }, dayContent = { day -> CalendarCell(day, meals.filter { day.date.toString() in it.termine }, open) })
-        } else {
+        } else if (calendarView == "WEEK") {
             WeekCalendar(
                 modifier = Modifier.height(158.dp),
                 state = weekState,
@@ -152,6 +170,8 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
                 edit = { meal -> edit(meal, selectedDate) },
                 modifier = Modifier.weight(1f),
             )
+        } else {
+            PlanSchedule(planItems, planListState, open, edit, Modifier.weight(1f))
         }
     }
 }
@@ -237,6 +257,58 @@ private fun WeekAgendaMealCard(meal: Mahlzeit, click: () -> Unit) = Card(
             meal.tags.takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · ") { tag -> Tag.entries.find { it.name == tag }?.label ?: tag }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         meal.durchschnitt()?.let { Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) { Text(String.format(Locale.GERMANY, "%.1f", it), Modifier.padding(horizontal = 8.dp, vertical = 5.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer) } }
+    }
+}
+
+private sealed interface PlanItem {
+    data class Month(val yearMonth: YearMonth) : PlanItem
+    data class Day(val date: LocalDate, val meals: List<Mahlzeit>) : PlanItem
+}
+
+private fun scheduledPlanItems(meals: List<Mahlzeit>): List<PlanItem> {
+    val mealsByDate = meals.flatMap { meal ->
+        meal.termine.mapNotNull { date -> runCatching { LocalDate.parse(date) }.getOrNull()?.let { it to meal } }
+    }.groupBy({ it.first }, { it.second })
+    return mealsByDate.entries.groupBy { YearMonth.from(it.key) }.toSortedMap().flatMap { (month, days) ->
+        listOf(PlanItem.Month(month)) + days.sortedBy { it.key }.map { (date, scheduledMeals) -> PlanItem.Day(date, scheduledMeals) }
+    }
+}
+
+@Composable
+private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundation.lazy.LazyListState, open: (LocalDate) -> Unit, edit: (Mahlzeit, LocalDate) -> Unit, modifier: Modifier = Modifier) {
+    if (items.isEmpty()) {
+        Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
+            Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(12.dp))
+                Text("Noch nichts geplant", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("Plane deine erste Mahlzeit für heute.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = { open(LocalDate.now()) }) { Text("Mahlzeit planen") }
+            }
+        }
+    } else {
+        LazyColumn(state = state, modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(items, key = { item -> when (item) { is PlanItem.Month -> "month-${item.yearMonth}"; is PlanItem.Day -> "day-${item.date}" } }) { item ->
+                when (item) {
+                    is PlanItem.Month -> Text(item.yearMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.GERMAN)), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
+                    is PlanItem.Day -> PlanDayRow(item.date, item.meals, edit)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlanDayRow(date: LocalDate, meals: List<Mahlzeit>, edit: (Mahlzeit, LocalDate) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Column(Modifier.width(54.dp).padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.GERMAN), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = if (date == LocalDate.now()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            meals.forEach { meal -> WeekAgendaMealCard(meal) { edit(meal, date) } }
+        }
     }
 }
 
