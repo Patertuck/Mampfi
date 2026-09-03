@@ -1,0 +1,8 @@
+.git
+.gradle
+.kotlin
+**/build
+androidApp
+data
+local.properties
+*.hprof

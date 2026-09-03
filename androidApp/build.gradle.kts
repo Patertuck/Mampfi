@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     kotlin("android")
@@ -5,6 +7,20 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
+
+val localEndpointProperties = Properties().apply {
+    val configFile = rootProject.file("mampfi.local.properties")
+    if (configFile.isFile) configFile.inputStream().use(::load)
+}
+
+fun endpointProperty(name: String, fallback: String): String = providers.gradleProperty(name)
+    .orElse(localEndpointProperties.getProperty(name) ?: fallback)
+    .get()
+
+val lanBaseUrl = endpointProperty("mampfi.lanBaseUrl", "http://10.0.2.2:8080/").ensureTrailingSlash()
+val tailscaleBaseUrl = endpointProperty("mampfi.tailscaleBaseUrl", "").let { if (it.isBlank()) "" else it.ensureTrailingSlash() }
+
+fun String.ensureTrailingSlash() = if (endsWith('/')) this else "$this/"
 
 android {
     namespace = "ch.mampfi.app"
@@ -21,8 +37,10 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("String", "MAMPFI_LAN_BASE_URL", "\"$lanBaseUrl\"")
+        buildConfigField("String", "MAMPFI_TAILSCALE_BASE_URL", "\"$tailscaleBaseUrl\"")
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 }
 
 kotlin {

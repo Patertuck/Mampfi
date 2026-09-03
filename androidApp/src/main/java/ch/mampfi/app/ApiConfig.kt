@@ -1,6 +1,7 @@
 package ch.mampfi.app
 
-/** URL of the Ktor service when the app runs in the Android emulator. */
 object ApiConfig {
-    const val BASE_URL = "http://10.0.2.2:8080/"
+    val lanBaseUrl: String = BuildConfig.MAMPFI_LAN_BASE_URL
+    val tailscaleBaseUrl: String = BuildConfig.MAMPFI_TAILSCALE_BASE_URL
+    val candidates: List<String> = listOf(lanBaseUrl, tailscaleBaseUrl).filter { it.isNotBlank() }.distinct()
 }

@@ -76,8 +76,7 @@ fun Application.module(
             val filename = "${UUID.randomUUID()}.$extension"
             part.provider().copyAndClose(File(uploads, filename).writeChannel())
             part.dispose()
-            val local = call.request.local
-            call.respond(mapOf("url" to "${local.scheme}://${local.serverHost}:${local.serverPort}/uploads/$filename"))
+            call.respond(mapOf("url" to "/uploads/$filename"))
         }
     }
 }

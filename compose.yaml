@@ -1,0 +1,12 @@
+services:
+  mampfi:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: /data/mampfi.db
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

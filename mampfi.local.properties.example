@@ -1,0 +1,5 @@
+# Copy this file to mampfi.local.properties and replace the example values.
+# It is deliberately ignored by Git because it contains your private network addresses.
+mampfi.lanBaseUrl=http://192.168.1.50:8080/
+# Optional: uncomment after Tailscale is configured.
+#mampfi.tailscaleBaseUrl=http://mampfi.tailnet-name.ts.net:8080/

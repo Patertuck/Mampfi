@@ -1,6 +1,7 @@
 package ch.mampfi.server
 
 import io.ktor.client.request.*
+import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.testing.*
@@ -11,6 +12,25 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 
 class MealApiTest {
+    @Test
+    fun `image uploads return a relative path`() = testApplication {
+        val dataDirectory = createTempDirectory("mampfi-upload-test-").toFile()
+        application { module(File(dataDirectory, "mampfi.db").path, File(dataDirectory, "uploads")) }
+
+        val response = client.submitFormWithBinaryData(
+            url = "/api/bilder",
+            formData = formData {
+                append("datei", byteArrayOf(1, 2, 3), Headers.build {
+                    append(HttpHeaders.ContentDisposition, "form-data; name=\"datei\"; filename=\"test.jpg\"")
+                    append(HttpHeaders.ContentType, ContentType.Image.JPEG.toString())
+                })
+            },
+        )
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertContains(response.bodyAsText(), "\"url\":\"/uploads/")
+    }
+
     @Test
     fun `meal lifecycle and validation`() = testApplication {
         val dataDirectory = createTempDirectory("mampfi-test-").toFile()

@@ -5,6 +5,9 @@ build/
 .idea/
 *.iml
 local.properties
+mampfi.local.properties
+mampfi-image*.tar
 server/mampfi.db
 server/uploads/
+data/
 *.hprof
