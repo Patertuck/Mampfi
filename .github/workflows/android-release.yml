@@ -29,6 +29,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
       - name: Verify tests
         run: ./gradlew :server:test :androidApp:compileReleaseKotlin --no-daemon
 
