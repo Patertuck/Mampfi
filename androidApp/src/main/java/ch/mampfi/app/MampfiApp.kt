@@ -35,12 +35,8 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.*
 import ch.mampfi.app.data.*
 import coil3.compose.AsyncImage
-import com.kizitonwose.calendar.compose.HorizontalCalendar
 import com.kizitonwose.calendar.compose.WeekCalendar
-import com.kizitonwose.calendar.compose.rememberCalendarState
 import com.kizitonwose.calendar.compose.weekcalendar.rememberWeekCalendarState
-import com.kizitonwose.calendar.core.CalendarDay
-import com.kizitonwose.calendar.core.DayPosition
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.time.LocalDate
@@ -136,7 +132,6 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
 @Composable
 private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edit: (Mahlzeit, LocalDate) -> Unit) {
     val currentMonth = remember { YearMonth.now() }
-    val monthState = rememberCalendarState(currentMonth.minusMonths(24), currentMonth.plusMonths(24), currentMonth, java.time.DayOfWeek.MONDAY)
     val weekState = rememberWeekCalendarState(
         startDate = currentMonth.minusMonths(24).atDay(1),
         endDate = currentMonth.plusMonths(24).atEndOfMonth(),
@@ -177,32 +172,22 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
                 selected = calendarView == "WEEK",
                 onClick = {
                     if (calendarView != "WEEK") {
-                        val visibleDate = if (calendarView == "MONTH") monthState.firstVisibleMonth.yearMonth.atDay(1) else selectedDate
                         calendarView = "WEEK"
-                        scope.launch { weekState.scrollToWeek(visibleDate) }
+                        scope.launch { weekState.scrollToWeek(selectedDate) }
                     }
                 },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                 label = { Text("Woche") },
             )
             SegmentedButton(
-                selected = calendarView == "MONTH",
-                onClick = {
-                    if (calendarView != "MONTH") {
-                        val visibleDate = if (calendarView == "WEEK") weekState.firstVisibleWeek.days.first().date else selectedDate
-                        calendarView = "MONTH"
-                        scope.launch { monthState.scrollToMonth(YearMonth.from(visibleDate)) }
-                    }
-                },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
-                label = { Text("Monat") },
+                selected = calendarView == "PLAN",
+                onClick = { calendarView = "PLAN" },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                label = { Text("Plan") },
             )
-            SegmentedButton(selected = calendarView == "PLAN", onClick = { calendarView = "PLAN" }, shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3), label = { Text("Plan") })
         }
         Spacer(Modifier.height(16.dp))
-        if (calendarView == "MONTH") {
-            HorizontalCalendar(state = monthState, monthHeader = { month -> CalendarMonthHeader(month.yearMonth) }, dayContent = { day -> CalendarCell(day, meals.filter { day.date.toString() in it.termine }, open) })
-        } else if (calendarView == "WEEK") {
+        if (calendarView == "WEEK") {
             WeekCalendar(
                 modifier = Modifier.height(158.dp),
                 state = weekState,
@@ -224,26 +209,12 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
 }
 
 @Composable
-private fun CalendarMonthHeader(month: YearMonth) {
-    Column(Modifier.padding(bottom = 8.dp)) {
-        Text(month.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.GERMAN)), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth()) { listOf("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").forEach { day -> Text(day, Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary) } }
-    }
-}
-
-@Composable
 private fun CalendarWeekHeader(start: LocalDate, end: LocalDate) {
     Column(Modifier.padding(bottom = 8.dp)) {
         Text("${start.format(DateTimeFormatter.ofPattern("d. MMMM", Locale.GERMAN))} – ${end.format(DateTimeFormatter.ofPattern("d. MMMM yyyy", Locale.GERMAN))}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth()) { listOf("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").forEach { day -> Text(day, Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary) } }
     }
-}
-
-@Composable
-private fun CalendarCell(day: CalendarDay, meals: List<Mahlzeit>, open: (LocalDate) -> Unit) {
-    CalendarDayCell(day.date, day.position == DayPosition.MonthDate, meals, open)
 }
 
 @Composable
@@ -355,23 +326,6 @@ private fun PlanDayRow(date: LocalDate, meals: List<Mahlzeit>, edit: (Mahlzeit, 
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             meals.forEach { meal -> WeekAgendaMealCard(meal) { edit(meal, date) } }
-        }
-    }
-}
-
-@Composable
-private fun CalendarDayCell(date: LocalDate, inCurrentRange: Boolean, meals: List<Mahlzeit>, open: (LocalDate) -> Unit) {
-    val today = date == LocalDate.now()
-    val container = when { today -> MaterialTheme.colorScheme.primaryContainer; inCurrentRange -> MaterialTheme.colorScheme.surface; else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f) }
-    Surface(Modifier.fillMaxWidth().height(88.dp).padding(3.dp).clip(MaterialTheme.shapes.medium).clickable { open(date) }, shape = MaterialTheme.shapes.medium, color = container, border = if (today) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
-        Column(Modifier.padding(horizontal = 6.dp, vertical = 5.dp)) {
-            Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.labelMedium, fontWeight = if (today) FontWeight.Bold else FontWeight.Medium, color = if (inCurrentRange) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(3.dp))
-            meals.take(2).forEach { meal ->
-                Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.17f), shape = MaterialTheme.shapes.extraSmall) { Text(meal.name, Modifier.fillMaxWidth().padding(horizontal = 5.dp, vertical = 2.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
-                Spacer(Modifier.height(2.dp))
-            }
-            if (meals.size > 2) Text("+${meals.size - 2} weitere", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
         }
     }
 }
