@@ -33,6 +33,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import ch.mampfi.app.data.*
 import coil3.compose.AsyncImage
 import com.kizitonwose.calendar.compose.WeekCalendar
@@ -53,12 +56,28 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
     val nav = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val updater = remember(context) { AppUpdater(context) }
     val updateScope = rememberCoroutineScope()
     var availableUpdate by remember { mutableStateOf<AvailableUpdate?>(null) }
     var updateDownloadProgress by remember { mutableStateOf<Int?>(null) }
     var updateDownloadError by remember { mutableStateOf<String?>(null) }
     val currentRoute = nav.currentBackStackEntryAsState().value?.destination?.route
+    DisposableEffect(lifecycleOwner, vm) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> vm.startForegroundRefresh()
+                Lifecycle.Event.ON_PAUSE -> vm.stopForegroundRefresh()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) vm.startForegroundRefresh()
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            vm.stopForegroundRefresh()
+        }
+    }
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }
     LaunchedEffect(connectedViaTailscale) {
         if (connectedViaTailscale) snackbar.showSnackbar("Verbunden über Tailscale")
