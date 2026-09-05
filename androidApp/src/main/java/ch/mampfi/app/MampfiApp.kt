@@ -50,11 +50,14 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @Composable
-fun MampfiApp(vm: MealViewModel) = MampfiTheme {
+fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false) = MampfiTheme {
     val nav = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
     val currentRoute = nav.currentBackStackEntryAsState().value?.destination?.route
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }
+    LaunchedEffect(connectedViaTailscale) {
+        if (connectedViaTailscale) snackbar.showSnackbar("Verbunden über Tailscale")
+    }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },

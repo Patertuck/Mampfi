@@ -30,7 +30,7 @@ class MainActivity : ComponentActivity() {
         } else {
             val api = remember(baseUrl) { Retrofit.Builder().baseUrl(baseUrl!!).addConverterFactory(Json { ignoreUnknownKeys = true }.asConverterFactory("application/json".toMediaType())).build().create(MealApi::class.java) }
             val vm: MealViewModel = viewModel(key = baseUrl, factory = MealViewModelFactory(MealRepository(api, db.meals(), baseUrl!!)))
-            MampfiApp(vm)
+            MampfiApp(vm, connectedViaTailscale = baseUrl == ApiConfig.tailscaleBaseUrl)
         }
     } }
 }
