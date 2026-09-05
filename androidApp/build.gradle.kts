@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     kotlin("android")
@@ -8,19 +6,13 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-val localEndpointProperties = Properties().apply {
-    val configFile = rootProject.file("mampfi.local.properties")
-    if (configFile.isFile) configFile.inputStream().use(::load)
-}
-
-fun endpointProperty(name: String, fallback: String): String = providers.gradleProperty(name)
-    .orElse(localEndpointProperties.getProperty(name) ?: fallback)
-    .get()
-
-val lanBaseUrl = endpointProperty("mampfi.lanBaseUrl", "http://10.0.2.2:8080/").ensureTrailingSlash()
-val tailscaleBaseUrl = endpointProperty("mampfi.tailscaleBaseUrl", "").let { if (it.isBlank()) "" else it.ensureTrailingSlash() }
-
-fun String.ensureTrailingSlash() = if (endsWith('/')) this else "$this/"
+val appVersionCode = providers.gradleProperty("mampfi.versionCode").orNull?.toIntOrNull() ?: 1
+val appVersionName = providers.gradleProperty("mampfi.versionName").orNull ?: "1.0.0"
+val updateMetadataUrl = providers.gradleProperty("mampfi.updateMetadataUrl").orNull.orEmpty()
+val releaseStoreFile = providers.gradleProperty("mampfi.releaseStoreFile").orNull
+val releaseStorePassword = providers.gradleProperty("mampfi.releaseStorePassword").orNull
+val releaseKeyAlias = providers.gradleProperty("mampfi.releaseKeyAlias").orNull
+val releaseKeyPassword = providers.gradleProperty("mampfi.releaseKeyPassword").orNull
 
 android {
     namespace = "ch.mampfi.app"
@@ -35,10 +27,24 @@ android {
         applicationId = "ch.mampfi.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
-        buildConfigField("String", "MAMPFI_LAN_BASE_URL", "\"$lanBaseUrl\"")
-        buildConfigField("String", "MAMPFI_TAILSCALE_BASE_URL", "\"$tailscaleBaseUrl\"")
+        versionCode = appVersionCode
+        versionName = appVersionName
+        buildConfigField("String", "UPDATE_METADATA_URL", "\"$updateMetadataUrl\"")
+    }
+    signingConfigs {
+        if (releaseStoreFile != null && releaseStorePassword != null && releaseKeyAlias != null && releaseKeyPassword != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            if (signingConfigs.findByName("release") != null) signingConfig = signingConfigs.getByName("release")
+        }
     }
     buildFeatures { compose = true; buildConfig = true }
 }
@@ -59,6 +65,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")

@@ -16,30 +16,21 @@ Server: `./gradlew :server:run` (Windows: `./gradlew.bat :server:run`). Standard
    curl http://192.168.1.50:8080/api/mahlzeiten
    ```
 
-   Docker speichert Datenbank und Bilder dauerhaft in `data/`. Diese erste Installation startet leer.
-3. Richte die lokale Android-Konfiguration ein und trage deine Server-Adresse ein:
-
-   ```powershell
-   Copy-Item mampfi.local.properties.example mampfi.local.properties
-   ```
-
-   Öffne danach `mampfi.local.properties` und ersetze `192.168.1.50` durch die LAN-IP deines Homeservers.
-4. Baue die Android-App:
+   Docker speichert Datenbank und Bilder dauerhaft in `data/`.
+3. Baue die Android-App:
 
    ```powershell
    .\gradlew.bat :androidApp:assembleDebug
    ```
 
-   Der Build prüft beim App-Start zuerst diese LAN-Adresse mit einem kurzen HTTP-Timeout. Bilder werden als relative `/uploads/...`-Pfade gespeichert und deshalb mit derselben aktuell gewählten Server-Adresse geladen.
-
-## Tailscale später ergänzen
-
-Installiere Tailscale auf Homeserver und Telefon im selben Tailnet. Ergänze dann in `mampfi.local.properties` die Tailscale-Adresse:
-
-```properties
-mampfi.tailscaleBaseUrl=http://mampfi.tailnet-name.ts.net:8080/
-```
-
-Nach einem neuen Build probiert die App beim Start zuerst das LAN. Ist der Server dort nicht innerhalb von 1,5 Sekunden erreichbar, verwendet sie automatisch den Tailscale-Endpunkt. Öffne dafür keine Router-Ports ins Internet.
+   Beim ersten Start fragt die App nach der LAN-Adresse. Wenn du Tailscale verwendest, trägst du dort auch die optionale Tailscale-Adresse ein. Die App probiert zuerst LAN und verwendet Tailscale, wenn der LAN-Server nicht erreichbar ist.
 
 Der Server bietet keine Anmeldung und ist deshalb ausschließlich für ein vertrauenswürdiges privates Netzwerk oder Tailnet gedacht.
+
+## Android-Releases
+
+Jeder Merge nach `main` startet die GitHub-Actions-Workflow-Datei `.github/workflows/android-release.yml`. Nach erfolgreichen Tests erstellt sie eine signierte APK und veröffentlicht sie zusammen mit dem Update-Manifest in einem GitHub Release.
+
+Die erste Release-APK wird manuell auf jedem Telefon installiert. Spätere App-Starts erkennen einen neuen GitHub Release, zeigen dessen Version und laden ihn erst nach Bestätigung herunter. Android zeigt danach immer die Systembestätigung für die Installation.
+
+Die einmalige Keystore- und GitHub-Secrets-Einrichtung steht in [docs/android-releases.md](docs/android-releases.md).

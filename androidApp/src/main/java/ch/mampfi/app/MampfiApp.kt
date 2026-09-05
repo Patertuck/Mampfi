@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.ViewList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -48,15 +49,28 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
-fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false) = MampfiTheme {
+fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpointStore: EndpointSettingsStore) = MampfiTheme {
     val nav = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val updater = remember(context) { AppUpdater(context) }
+    val updateScope = rememberCoroutineScope()
+    var availableUpdate by remember { mutableStateOf<AvailableUpdate?>(null) }
+    var updateDownloadProgress by remember { mutableStateOf<Int?>(null) }
+    var updateDownloadError by remember { mutableStateOf<String?>(null) }
     val currentRoute = nav.currentBackStackEntryAsState().value?.destination?.route
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }
     LaunchedEffect(connectedViaTailscale) {
         if (connectedViaTailscale) snackbar.showSnackbar("Verbunden über Tailscale")
+    }
+    LaunchedEffect(Unit) {
+        if (BuildConfig.UPDATE_METADATA_URL.isNotBlank()) {
+            availableUpdate = withContext(Dispatchers.IO) { updater.checkForUpdate(BuildConfig.UPDATE_METADATA_URL) }
+        }
     }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -66,6 +80,7 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false) = Mampf
                 listOf(
                     Triple("kalender", "Kalender", Icons.Outlined.CalendarMonth),
                     Triple("uebersicht", "Übersicht", Icons.Outlined.ViewList),
+                    Triple("einstellungen", "Einstellungen", Icons.Outlined.Settings),
                 ).forEach { (route, label, icon) ->
                     NavigationBarItem(
                         selected = currentRoute == route,
@@ -84,7 +99,36 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false) = Mampf
                 edit = { meal, date -> nav.navigate("bearbeiten/$date?meal=${meal.id}") },
             ) }
             composable("uebersicht") { OverviewScreen(vm.meals.collectAsState().value) { meal -> nav.navigate("bearbeiten/${meal.letzterTermin() ?: LocalDate.now()}?meal=${meal.id}") } }
+            composable("einstellungen") { EndpointSetupScreen(endpointStore, configured = true) { nav.popBackStack() } }
             composable("bearbeiten/{date}?meal={meal}") { entry -> EditScreen(vm, LocalDate.parse(entry.arguments!!.getString("date")!!), entry.arguments?.getString("meal")) { nav.popBackStack() } }
+        }
+    }
+    availableUpdate?.let { update ->
+        UpdateAvailableDialog(
+            version = update.version,
+            progress = updateDownloadProgress,
+            dismiss = { if (updateDownloadProgress == null) availableUpdate = null },
+            download = {
+                updateDownloadProgress = 0
+                updateScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            updater.downloadApk(update.apkUrl, "mampfi-${update.version.filter { it.isLetterOrDigit() || it == '.' }}") { progress ->
+                                updateDownloadProgress = progress
+                            }
+                        }
+                    } catch (_: Exception) {
+                        updateDownloadProgress = null
+                        updateDownloadError = "Update konnte nicht heruntergeladen werden."
+                    }
+                }
+            },
+        )
+    }
+    updateDownloadError?.let { error ->
+        LaunchedEffect(error) {
+            snackbar.showSnackbar(error)
+            updateDownloadError = null
         }
     }
 }

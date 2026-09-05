@@ -23,14 +23,31 @@ class MainActivity : ComponentActivity() {
     private val db by lazy { Room.databaseBuilder(applicationContext, MealDatabase::class.java, "mampfi.db").build() }
 
     override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContent {
+        val endpointStore = remember { EndpointSettingsStore(applicationContext) }
+        val settings by endpointStore.settings.collectAsState(initial = null)
         var baseUrl by remember { mutableStateOf<String?>(null) }
-        LaunchedEffect(Unit) { baseUrl = ServerEndpointResolver.resolve() }
-        if (baseUrl == null) {
+        LaunchedEffect(settings) {
+            baseUrl = if (settings?.isConfigured == true) ServerEndpointResolver.resolve(settings!!) else null
+        }
+        when {
+            settings == null -> {
+                MampfiTheme { Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() } }
+            }
+            !settings!!.isConfigured -> {
+                MampfiTheme { EndpointSetupScreen(endpointStore) }
+            }
+            baseUrl == null -> {
             MampfiTheme { Box(Modifier.fillMaxSize(), Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator(); Spacer(Modifier.height(12.dp)); Text("Server wird verbunden …", color = MaterialTheme.colorScheme.onBackground) } } }
-        } else {
+            }
+            else -> {
             val api = remember(baseUrl) { Retrofit.Builder().baseUrl(baseUrl!!).addConverterFactory(Json { ignoreUnknownKeys = true }.asConverterFactory("application/json".toMediaType())).build().create(MealApi::class.java) }
             val vm: MealViewModel = viewModel(key = baseUrl, factory = MealViewModelFactory(MealRepository(api, db.meals(), baseUrl!!)))
-            MampfiApp(vm, connectedViaTailscale = baseUrl == ApiConfig.tailscaleBaseUrl)
+            MampfiApp(
+                vm,
+                connectedViaTailscale = baseUrl == settings!!.tailscaleBaseUrl,
+                endpointStore = endpointStore,
+            )
+            }
         }
     } }
 }

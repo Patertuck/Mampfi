@@ -9,8 +9,8 @@ import java.util.concurrent.TimeUnit
 object ServerEndpointResolver {
     private val client = OkHttpClient.Builder().callTimeout(1500, TimeUnit.MILLISECONDS).build()
 
-    suspend fun resolve(): String = withContext(Dispatchers.IO) {
-        ApiConfig.candidates.firstOrNull(::isReachable) ?: ApiConfig.lanBaseUrl
+    suspend fun resolve(settings: EndpointSettings): String = withContext(Dispatchers.IO) {
+        ApiConfig.candidates(settings).firstOrNull(::isReachable) ?: settings.lanBaseUrl
     }
 
     private fun isReachable(baseUrl: String): Boolean = runCatching {
