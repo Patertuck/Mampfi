@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <application android:allowBackup="false" android:label="Mampfi" android:theme="@style/Theme.Mampfi" android:usesCleartextTraffic="true">
+    <application android:allowBackup="false" android:icon="@drawable/mampfi_icon" android:label="Mampfi" android:roundIcon="@drawable/mampfi_icon" android:theme="@style/Theme.Mampfi" android:usesCleartextTraffic="true">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
