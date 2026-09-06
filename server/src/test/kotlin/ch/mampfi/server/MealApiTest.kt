@@ -50,6 +50,13 @@ class MealApiTest {
         assertEquals(HttpStatusCode.BadRequest, singleRating.status)
         assertContains(singleRating.bodyAsText(), "genau zwei Werte")
 
+        val conflictingDietTags = client.post("/api/mahlzeiten") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"id":"conflicting-tags","name":"Gemüse","tags":["VEGAN","VEGETARISCH"]}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, conflictingDietTags.status)
+        assertContains(conflictingDietTags.bodyAsText(), "nicht gleichzeitig vegan und vegetarisch")
+
         val meal = """{"id":"pasta","name":"Pasta","tags":["VEGETARISCH"],"termine":["2026-09-01"],"bewertungen":[{"werte":[8.5,9.0],"datum":"2026-09-01"}]}"""
         assertEquals(HttpStatusCode.Created, client.post("/api/mahlzeiten") {
             contentType(ContentType.Application.Json)

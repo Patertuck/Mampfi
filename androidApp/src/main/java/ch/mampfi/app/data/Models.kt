@@ -19,7 +19,21 @@ enum class Tag(val label: String) { VEGETARISCH("Vegetarisch"), VEGAN("Vegan"), 
     fun durchschnitt() = bewertungen.flatMap { it.werte }.takeIf { it.isNotEmpty() }?.average()
     fun letztesBild() = bilder.maxByOrNull { it.datum }?.url
     fun letzterTermin() = termine.maxOrNull()
-    fun hatTag(tag: Tag) = tag.name in tags
+    fun hatTag(tag: Tag) = when (tag) {
+        Tag.VEGETARISCH -> Tag.VEGETARISCH.name in tags || Tag.VEGAN.name in tags
+        else -> tag.name in tags
+    }
+}
+
+internal fun Set<Tag>.normalizedDietTags() = if (Tag.VEGAN in this) this - Tag.VEGETARISCH else this
+
+internal fun Set<Tag>.toggleMealTag(tag: Tag): Set<Tag> {
+    if (tag in this) return this - tag
+    return when (tag) {
+        Tag.VEGAN -> (this - Tag.VEGETARISCH) + Tag.VEGAN
+        Tag.VEGETARISCH -> (this - Tag.VEGAN) + Tag.VEGETARISCH
+        else -> this + tag
+    }
 }
 
 @Entity(tableName = "mahlzeiten")

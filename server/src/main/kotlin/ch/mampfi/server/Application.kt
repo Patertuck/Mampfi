@@ -83,6 +83,7 @@ fun Application.module(
 
 private fun validate(meal: Mahlzeit): Map<String, String>? = when {
     meal.name.isBlank() -> mapOf("fehler" to "Name darf nicht leer sein")
+    "VEGAN" in meal.tags && "VEGETARISCH" in meal.tags -> mapOf("fehler" to "Eine Mahlzeit kann nicht gleichzeitig vegan und vegetarisch sein")
     meal.termine.any { runCatching { LocalDate.parse(it) }.isFailure } -> mapOf("fehler" to "Ungültiges Datum")
     meal.termine.distinct().size != meal.termine.size -> mapOf("fehler" to "Termin darf nicht doppelt vorkommen")
     meal.bewertungen.any { it.werte.size != 2 } -> mapOf("fehler" to "Jede Bewertung braucht genau zwei Werte")
