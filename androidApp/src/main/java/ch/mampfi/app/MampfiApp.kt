@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -17,9 +18,11 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Eco
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Spa
 import androidx.compose.material.icons.outlined.ViewList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -293,6 +296,7 @@ private fun WeekAgendaMealCard(meal: Mahlzeit, click: () -> Unit) = Card(
             Text(meal.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             meal.tags.takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · ") { tag -> Tag.entries.find { it.name == tag }?.label ?: tag }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
+        DietMarker(meal, Modifier.padding(end = 8.dp))
         meal.durchschnitt()?.let { Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) { Text(String.format(Locale.GERMANY, "%.1f", it), Modifier.padding(horizontal = 8.dp, vertical = 5.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer) } }
     }
 }
@@ -384,10 +388,33 @@ private fun MealCard(meal: Mahlzeit, click: () -> Unit) = Card(Modifier.fillMaxW
     Column {
         meal.letztesBild()?.let { AsyncImage(it, null, Modifier.fillMaxWidth().height(104.dp)) }
         Column(Modifier.padding(12.dp)) {
-            Text(meal.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(meal.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                DietMarker(meal, Modifier.padding(start = 8.dp))
+            }
             Spacer(Modifier.height(8.dp))
             Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) { Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "Noch nicht bewertet", Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer) }
         }
+    }
+}
+
+@Composable
+private fun DietMarker(meal: Mahlzeit, modifier: Modifier = Modifier) {
+    val tag = when {
+        meal.hatTag(Tag.VEGAN) -> Tag.VEGAN
+        meal.hatTag(Tag.VEGETARISCH) -> Tag.VEGETARISCH
+        else -> return
+    }
+    val icon = if (tag == Tag.VEGAN) Icons.Outlined.Eco else Icons.Outlined.Spa
+    val containerColor = if (tag == Tag.VEGAN) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
+    val contentColor = if (tag == Tag.VEGAN) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+    Surface(modifier = modifier, shape = CircleShape, color = containerColor) {
+        Icon(
+            imageVector = icon,
+            contentDescription = tag.label,
+            modifier = Modifier.padding(5.dp).size(18.dp),
+            tint = contentColor,
+        )
     }
 }
 
