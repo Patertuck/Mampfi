@@ -17,8 +17,10 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Eco
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Settings
@@ -30,9 +32,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.*
@@ -264,12 +269,12 @@ private fun WeekCalendarCell(date: LocalDate, mealCount: Int, selected: Boolean,
 private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, plan: () -> Unit, edit: (Mahlzeit) -> Unit, modifier: Modifier = Modifier) {
     Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
-            Text(date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM", Locale.GERMAN)), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM", Locale.GERMAN)), modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             Spacer(Modifier.height(4.dp))
-            Text(if (meals.isEmpty()) "Noch nichts geplant" else "${meals.size} ${if (meals.size == 1) "Mahlzeit" else "Mahlzeiten"} geplant", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (meals.isEmpty()) "Noch nichts geplant" else "${meals.size} ${if (meals.size == 1) "Mahlzeit" else "Mahlzeiten"} geplant", modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
             if (meals.isEmpty()) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(12.dp))
                     Text("Zeit für etwas Leckeres.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -296,8 +301,8 @@ private fun WeekAgendaMealCard(meal: Mahlzeit, click: () -> Unit) = Card(
             Text(meal.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             meal.tags.filterNot { it == Tag.VEGETARISCH.name && Tag.VEGAN.name in meal.tags }.takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · ") { tag -> Tag.entries.find { it.name == tag }?.label ?: tag }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-        DietMarker(meal, Modifier.padding(end = 8.dp))
         meal.durchschnitt()?.let { Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) { Text(String.format(Locale.GERMANY, "%.1f", it), Modifier.padding(horizontal = 8.dp, vertical = 5.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer) } }
+        DietMarker(meal, Modifier.padding(start = 8.dp))
     }
 }
 
@@ -385,15 +390,34 @@ private fun Set<Tag>.toggle(item: Tag) = if (item in this) this - item else this
 
 @Composable
 private fun MealCard(meal: Mahlzeit, click: () -> Unit) = Card(Modifier.fillMaxWidth().clickable(onClick = click), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    val lastCooked = meal.letzterTermin()?.let { date ->
+        runCatching { LocalDate.parse(date).format(DateTimeFormatter.ofPattern("dd.MM.yy")) }.getOrNull()
+    } ?: "–"
     Column {
-        meal.letztesBild()?.let { AsyncImage(it, null, Modifier.fillMaxWidth().height(104.dp)) }
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(meal.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 DietMarker(meal, Modifier.padding(start = 8.dp))
             }
             Spacer(Modifier.height(8.dp))
-            Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) { Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "Noch nicht bewertet", Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
+                    Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "– / 10", Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.CalendarMonth, contentDescription = "Zuletzt gekocht", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(4.dp))
+                    Text(lastCooked, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        meal.letztesBild()?.let { image ->
+            AsyncImage(
+                model = image,
+                contentDescription = null,
+                modifier = Modifier.fillMaxWidth().height(120.dp),
+                contentScale = ContentScale.Crop,
+            )
         }
     }
 }
@@ -419,6 +443,59 @@ private fun DietMarker(meal: Mahlzeit, modifier: Modifier = Modifier) {
 }
 
 @Composable
+private fun RecipeLinkField(link: String, editingExistingMeal: Boolean, update: (String) -> Unit) {
+    var editing by remember(editingExistingMeal) { mutableStateOf(!editingExistingMeal) }
+    val uriHandler = LocalUriHandler.current
+    if (editing) {
+        OutlinedTextField(
+            value = link,
+            onValueChange = update,
+            label = { Text("Rezept-Link") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            trailingIcon = if (editingExistingMeal) {
+                {
+                    IconButton(onClick = { editing = false }) {
+                        Icon(Icons.Outlined.Check, contentDescription = "Link-Bearbeitung abschließen")
+                    }
+                }
+            } else null,
+        )
+    } else {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.extraSmall,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(enabled = link.isNotBlank()) {
+                            val url = link.trim().let { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" }
+                            runCatching { uriHandler.openUri(url) }
+                        }
+                        .padding(start = 16.dp, top = 9.dp, bottom = 9.dp),
+                ) {
+                    Text("Rezept-Link", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        text = link.ifBlank { "Kein Rezept-Link" },
+                        color = if (link.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                        textDecoration = if (link.isBlank()) null else TextDecoration.Underline,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(onClick = { editing = true }) {
+                    Icon(Icons.Outlined.Edit, contentDescription = "Rezept-Link bearbeiten")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun EditScreen(vm: MealViewModel, date: LocalDate, id: String?, done: () -> Unit) {
     val meals by vm.meals.collectAsState(); val existing = meals.find { it.id == id }; var chosen by remember { mutableStateOf<Mahlzeit?>(null) }
     var name by remember(existing) { mutableStateOf(existing?.name ?: "") }; var link by remember(existing) { mutableStateOf(existing?.rezeptLink ?: "") }
@@ -434,8 +511,8 @@ private fun EditScreen(vm: MealViewModel, date: LocalDate, id: String?, done: ()
         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) { Column(Modifier.padding(20.dp)) { Text(if (existing == null) "Neues Essen" else "Mahlzeit bearbeiten", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM yyyy", Locale.GERMAN)), color = MaterialTheme.colorScheme.onPrimaryContainer) } } }
-        item { FormSection("Mahlzeit") { OutlinedTextField(name, { name = it; expanded = it.isNotBlank() && existing == null }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true); if (expanded) meals.filter { it.name.contains(name, true) }.take(5).forEach { meal -> Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { chosen = meal; name = meal.name; link = meal.rezeptLink.orEmpty(); tags = meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags(); expanded = false }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { meal.letztesBild()?.let { AsyncImage(it, null, Modifier.size(42.dp).clip(MaterialTheme.shapes.small)) }; Column(Modifier.padding(start = 10.dp)) { Text(meal.name, fontWeight = FontWeight.Bold); Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "Noch nicht bewertet", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }; OutlinedTextField(link, { link = it }, label = { Text("Rezept-Link") }, modifier = Modifier.fillMaxWidth(), singleLine = true) } }
+        item { Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) { Column(Modifier.padding(20.dp)) { Text(if (existing == null) "Neues Essen" else "Mahlzeit bearbeiten", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM yyyy", Locale.GERMAN)), color = MaterialTheme.colorScheme.onPrimaryContainer) } } }
+        item { FormSection("Mahlzeit") { OutlinedTextField(name, { name = it; expanded = it.isNotBlank() && existing == null }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true); if (expanded) meals.filter { it.name.contains(name, true) }.take(5).forEach { meal -> Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { chosen = meal; name = meal.name; link = meal.rezeptLink.orEmpty(); tags = meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags(); expanded = false }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { meal.letztesBild()?.let { AsyncImage(it, null, Modifier.size(42.dp).clip(MaterialTheme.shapes.small)) }; Column(Modifier.padding(start = 10.dp)) { Text(meal.name, fontWeight = FontWeight.Bold); Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "Noch nicht bewertet", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }; RecipeLinkField(link, existing != null) { link = it } } }
         item { FormSection("Eigenschaften") { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Tag.entries.forEach { tag -> FilterChip(tag in tags, { tags = tags.toggleMealTag(tag) }, { Text(tag.label) }) } } } }
         item { FormSection("Bewertung") { Text("Wenn ihr das Essen bewertet, gebt beide Bewertungen ein.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(ratingOne, { ratingOne = it }, label = { Text("Person 1 (1,00–10,00)") }, modifier = Modifier.fillMaxWidth(), singleLine = true); OutlinedTextField(ratingTwo, { ratingTwo = it }, label = { Text("Person 2 (1,00–10,00)") }, modifier = Modifier.fillMaxWidth(), singleLine = true) } }
         item { FormSection("Termin") { OutlinedTextField(dateText, { dateText = it }, label = { Text("Datum (JJJJ-MM-TT)") }, isError = selectedDate == null, modifier = Modifier.fillMaxWidth(), singleLine = true) } }
@@ -449,4 +526,4 @@ private fun EditScreen(vm: MealViewModel, date: LocalDate, id: String?, done: ()
 }
 
 @Composable
-private fun FormSection(title: String, content: @Composable ColumnScope.() -> Unit) = Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); content() } }
+private fun FormSection(title: String, content: @Composable ColumnScope.() -> Unit) = Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); content() } }
