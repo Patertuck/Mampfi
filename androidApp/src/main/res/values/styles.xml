@@ -3,7 +3,7 @@
 
     <style name="Theme.Mampfi.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/mampfi_background</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/mampfi_splash_mascot</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/mampfi_splash_icon</item>
         <item name="postSplashScreenTheme">@style/Theme.Mampfi</item>
     </style>
 </resources>

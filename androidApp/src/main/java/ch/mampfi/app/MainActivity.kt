@@ -3,14 +3,17 @@ package ch.mampfi.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -44,8 +47,19 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        val revealStartupDetails = mutableStateOf(false)
+        splashScreen.setOnExitAnimationListener { splashScreenView ->
+            splashScreenView.view.animate()
+                .alpha(0f)
+                .setDuration(SPLASH_EXIT_DURATION_MILLIS)
+                .withEndAction {
+                    splashScreenView.remove()
+                    revealStartupDetails.value = true
+                }
+                .start()
+        }
         setContent {
             val endpointStore = remember { EndpointSettingsStore(applicationContext) }
             val settings by endpointStore.settings.collectAsState(initial = null)
@@ -61,13 +75,23 @@ class MainActivity : ComponentActivity() {
 
             when {
                 settings == null -> {
-                    MampfiTheme { StartupLoadingScreen("Mampfi wird geladen …") }
+                    MampfiTheme {
+                        StartupLoadingScreen(
+                            message = "Mampfi wird geladen …",
+                            revealDetails = revealStartupDetails.value,
+                        )
+                    }
                 }
                 !settings!!.isConfigured -> {
                     MampfiTheme { EndpointSetupScreen(endpointStore) }
                 }
                 baseUrl == null -> {
-                    MampfiTheme { StartupLoadingScreen("Server wird verbunden …") }
+                    MampfiTheme {
+                        StartupLoadingScreen(
+                            message = "Server wird verbunden …",
+                            revealDetails = revealStartupDetails.value,
+                        )
+                    }
                 }
                 else -> {
                     val api = remember(baseUrl) {
@@ -93,30 +117,44 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private companion object {
+        const val SPLASH_EXIT_DURATION_MILLIS = 180L
+    }
 }
 
 @Composable
-private fun StartupLoadingScreen(message: String) {
+private fun StartupLoadingScreen(message: String, revealDetails: Boolean) {
+    var detailsVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(revealDetails) {
+        if (revealDetails) detailsVisible = true
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(colorResource(R.color.mampfi_background)),
-        contentAlignment = Alignment.Center,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+        Image(
+            painter = painterResource(R.drawable.mampfi_splash_mascot),
+            contentDescription = null,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(192.dp),
+            contentScale = ContentScale.Fit,
+        )
+        AnimatedVisibility(
+            visible = detailsVisible,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = 160.dp),
+            enter = fadeIn(animationSpec = tween(durationMillis = 150)),
         ) {
-            Image(
-                painter = painterResource(R.drawable.mampfi_splash_mascot),
-                contentDescription = null,
-                modifier = Modifier.size(220.dp),
-                contentScale = ContentScale.Fit,
-            )
-            Spacer(Modifier.height(24.dp))
-            CircularProgressIndicator(color = colorResource(R.color.mampfi_loading_indicator))
-            Spacer(Modifier.height(12.dp))
-            Text(message, color = colorResource(R.color.mampfi_loading_text))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = colorResource(R.color.mampfi_loading_indicator))
+                Spacer(Modifier.height(12.dp))
+                Text(message, color = colorResource(R.color.mampfi_loading_text))
+            }
         }
     }
 }
