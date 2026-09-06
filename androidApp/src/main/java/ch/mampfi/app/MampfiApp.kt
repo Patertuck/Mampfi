@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -15,10 +16,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Eco
 import androidx.compose.material.icons.outlined.Edit
@@ -38,11 +42,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.compose.*
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -368,6 +375,7 @@ private fun OverviewScreen(meals: List<Mahlzeit>, edit: (Mahlzeit) -> Unit) {
     var criterion by remember { mutableStateOf("Zuletzt gekocht") }
     var ascending by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
+    var galleryMeal by remember { mutableStateOf<Mahlzeit?>(null) }
     val normalizedQuery = query.trim()
     val filtered = meals.filter { meal ->
         meal.name.contains(normalizedQuery, ignoreCase = true) && selected.all(meal::hatTag)
@@ -407,14 +415,15 @@ private fun OverviewScreen(meals: List<Mahlzeit>, edit: (Mahlzeit) -> Unit) {
                 Text(if (meals.isEmpty()) "Noch keine Mahlzeiten" else "Keine passenden Mahlzeiten", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Text(if (meals.isEmpty()) "Plane im Kalender euer erstes Essen." else "Passe deine Suche oder Filter an.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        } else LazyVerticalGrid(GridCells.Adaptive(164.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) { items(filtered, key = { it.id }) { MealCard(it) { edit(it) } } }
+        } else LazyVerticalGrid(GridCells.Adaptive(164.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) { items(filtered, key = { it.id }) { meal -> MealCard(meal, { edit(meal) }) { galleryMeal = meal } } }
     }
+    galleryMeal?.let { meal -> MealImageGallery(meal) { galleryMeal = null } }
 }
 
 private fun Set<Tag>.toggle(item: Tag) = if (item in this) this - item else this + item
 
 @Composable
-private fun MealCard(meal: Mahlzeit, click: () -> Unit) = Card(Modifier.fillMaxWidth().clickable(onClick = click), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+private fun MealCard(meal: Mahlzeit, click: () -> Unit, openGallery: () -> Unit) = Card(Modifier.fillMaxWidth().clickable(onClick = click), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
     val lastCooked = meal.letzterTermin()?.let { date ->
         runCatching { LocalDate.parse(date).format(DateTimeFormatter.ofPattern("dd.MM.yy")) }.getOrNull()
     } ?: "–"
@@ -440,12 +449,71 @@ private fun MealCard(meal: Mahlzeit, click: () -> Unit) = Card(Modifier.fillMaxW
             AsyncImage(
                 model = image,
                 contentDescription = null,
-                modifier = Modifier.fillMaxWidth().height(120.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .clickable(onClick = openGallery),
                 contentScale = ContentScale.Crop,
             )
         }
     }
 }
+
+@Composable
+private fun MealImageGallery(meal: Mahlzeit, dismiss: () -> Unit) {
+    val pagerState = rememberPagerState(pageCount = { meal.bilder.size })
+    Dialog(
+        onDismissRequest = dismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
+                val image = meal.bilder[page]
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = 64.dp, bottom = 28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    AsyncImage(
+                        model = image.url,
+                        contentDescription = "${meal.name}, Bild ${page + 1}",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentScale = ContentScale.Fit,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "${formatImageDate(image.datum)} · ${page + 1} von ${meal.bilder.size}",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+            IconButton(
+                onClick = dismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+            ) {
+                Icon(Icons.Outlined.Close, contentDescription = "Galerie schließen", tint = Color.White)
+            }
+        }
+    }
+}
+
+private fun formatImageDate(value: String): String = runCatching {
+    LocalDate.parse(value).format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+}.getOrDefault(value)
 
 @Composable
 private fun DietMarker(meal: Mahlzeit, modifier: Modifier = Modifier) {
