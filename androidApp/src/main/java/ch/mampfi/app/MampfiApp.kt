@@ -18,11 +18,14 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Eco
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Spa
 import androidx.compose.material.icons.outlined.ViewList
@@ -361,14 +364,35 @@ private fun PlanDayRow(date: LocalDate, meals: List<Mahlzeit>, edit: (Mahlzeit, 
 @Composable
 private fun OverviewScreen(meals: List<Mahlzeit>, edit: (Mahlzeit) -> Unit) {
     var selected by remember { mutableStateOf(setOf<Tag>()) }
+    var query by rememberSaveable { mutableStateOf("") }
     var criterion by remember { mutableStateOf("Zuletzt gekocht") }
     var ascending by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
-    val filtered = meals.filter { selected.all(it::hatTag) }.sortedWith(compareBy<Mahlzeit> { when (criterion) { "Bewertung" -> it.durchschnitt() ?: -1.0; "Am häufigsten gekocht" -> it.termine.size; else -> it.letzterTermin() ?: "" } }.let { if (ascending) it else it.reversed() })
+    val normalizedQuery = query.trim()
+    val filtered = meals.filter { meal ->
+        meal.name.contains(normalizedQuery, ignoreCase = true) && selected.all(meal::hatTag)
+    }.sortedWith(compareBy<Mahlzeit> { when (criterion) { "Bewertung" -> it.durchschnitt() ?: -1.0; "Am häufigsten gekocht" -> it.termine.size; else -> it.letzterTermin() ?: "" } }.let { if (ascending) it else it.reversed() })
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Deine Mahlzeiten", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text("Finde schnell, worauf ihr Lust habt.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(16.dp))
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Mahlzeiten durchsuchen") },
+            placeholder = { Text("Nach Namen suchen") },
+            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+            trailingIcon = if (query.isNotEmpty()) {
+                {
+                    IconButton(onClick = { query = "" }) {
+                        Icon(Icons.Outlined.Clear, contentDescription = "Suche löschen")
+                    }
+                }
+            } else null,
+            singleLine = true,
+        )
+        Spacer(Modifier.height(12.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Tag.entries.forEach { tag -> FilterChip(tag in selected, { selected = selected.toggle(tag) }, { Text(tag.label) }) } }
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -378,9 +402,10 @@ private fun OverviewScreen(meals: List<Mahlzeit>, edit: (Mahlzeit) -> Unit) {
         Spacer(Modifier.height(14.dp))
         if (filtered.isEmpty()) Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
             Column(Modifier.padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(12.dp)); Text("Noch keine Mahlzeiten", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("Plane im Kalender euer erstes Essen.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(if (meals.isEmpty()) Icons.Outlined.CalendarMonth else Icons.Outlined.SearchOff, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(12.dp))
+                Text(if (meals.isEmpty()) "Noch keine Mahlzeiten" else "Keine passenden Mahlzeiten", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text(if (meals.isEmpty()) "Plane im Kalender euer erstes Essen." else "Passe deine Suche oder Filter an.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else LazyVerticalGrid(GridCells.Adaptive(164.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) { items(filtered, key = { it.id }) { MealCard(it) { edit(it) } } }
     }
