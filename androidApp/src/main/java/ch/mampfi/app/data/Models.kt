@@ -9,14 +9,20 @@ import java.time.LocalDate
 import java.util.UUID
 
 enum class Tag(val label: String) { VEGETARISCH("Vegetarisch"), VEGAN("Vegan"), DESSERT("Dessert"), AUFWANDIG("Aufwändig") }
-@Serializable data class MahlzeitBild(val url: String, val datum: String)
-@Serializable data class MahlzeitBewertung(val werte: List<Double>, val datum: String)
+@Serializable data class MahlzeitBild(val id: String = UUID.randomUUID().toString(), val url: String)
+@Serializable data class MahlzeitBewertung(val werte: List<Double>)
+@Serializable data class MahlzeitEintrag(
+    val id: String = UUID.randomUUID().toString(), val datum: String,
+    val bilder: List<MahlzeitBild> = emptyList(), val bewertung: MahlzeitBewertung? = null,
+)
+data class DatiertesMahlzeitBild(val url: String, val datum: String)
 @Serializable data class Mahlzeit(
     val id: String = UUID.randomUUID().toString(), val name: String, val rezeptLink: String? = null,
-    val tags: List<String> = emptyList(), val termine: List<String> = emptyList(),
-    val bilder: List<MahlzeitBild> = emptyList(), val bewertungen: List<MahlzeitBewertung> = emptyList()
+    val tags: List<String> = emptyList(), val eintraege: List<MahlzeitEintrag> = emptyList(),
 ) {
-    fun durchschnitt() = bewertungen.flatMap { it.werte }.takeIf { it.isNotEmpty() }?.average()
+    val termine get() = eintraege.map { it.datum }
+    val bilder get() = eintraege.flatMap { entry -> entry.bilder.map { DatiertesMahlzeitBild(it.url, entry.datum) } }
+    fun durchschnitt() = eintraege.mapNotNull { it.bewertung }.flatMap { it.werte }.takeIf { it.isNotEmpty() }?.average()
     fun letztesBild() = bilder.maxByOrNull { it.datum }?.url
     fun letzterTermin() = termine.maxOrNull()
     fun hatTag(tag: Tag) = when (tag) {

@@ -8,5 +8,5 @@ import kotlinx.coroutines.flow.Flow
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertAll(items: List<MahlzeitEntity>)
     @Query("DELETE FROM mahlzeiten") suspend fun clear()
 }
-@Database(entities = [MahlzeitEntity::class], version = 1, exportSchema = false)
+@Database(entities = [MahlzeitEntity::class], version = 2, exportSchema = false)
 abstract class MealDatabase : RoomDatabase() { abstract fun meals(): MealDao }

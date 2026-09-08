@@ -43,7 +43,9 @@ import retrofit2.Retrofit
 
 class MainActivity : ComponentActivity() {
     private val db by lazy {
-        Room.databaseBuilder(applicationContext, MealDatabase::class.java, "mampfi.db").build()
+        Room.databaseBuilder(applicationContext, MealDatabase::class.java, "mampfi.db")
+            .fallbackToDestructiveMigration()
+            .build()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

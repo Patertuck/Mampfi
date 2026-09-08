@@ -12,17 +12,31 @@ class MealRepository(private val api: MealApi, private val dao: MealDao, private
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     val meals: Flow<List<Mahlzeit>> = dao.observeAll().map { rows -> rows.map { json.decodeFromString(Mahlzeit.serializer(), it.json).withResolvedImageUrls() } }
     suspend fun refresh(): Result<Unit> = runCatching { cache(api.all()) }
-    suspend fun save(meal: Mahlzeit): Result<Mahlzeit> = runCatching {
-        val request = meal.withRelativeImageUrls()
-        val remote = runCatching { api.update(request.id, request) }.getOrElse { api.create(request) }; refresh(); remote
+    suspend fun createMeal(meal: Mahlzeit, entry: MahlzeitEintrag): Result<Unit> = runCatching {
+        api.create(meal.copy(eintraege = listOf(entry)).withRelativeImageUrls())
+        refresh().getOrThrow()
     }
-    suspend fun removeDate(id: String, date: String) = runCatching { api.removeDate(id, date); refresh() }
-    suspend fun delete(id: String) = runCatching { api.delete(id); refresh() }
-    suspend fun upload(name: String, stream: InputStream): Result<String> = runCatching {
+    suspend fun createEntry(meal: Mahlzeit, entry: MahlzeitEintrag): Result<Unit> = runCatching {
+        api.update(meal.id, meal.withRelativeImageUrls())
+        api.createEntry(meal.id, entry.withRelativeImageUrls())
+        refresh().getOrThrow()
+    }
+    suspend fun updateEntry(meal: Mahlzeit, entry: MahlzeitEintrag): Result<Unit> = runCatching {
+        api.update(meal.id, meal.withRelativeImageUrls())
+        api.updateEntry(meal.id, entry.id, entry.withRelativeImageUrls())
+        refresh().getOrThrow()
+    }
+    suspend fun deleteEntry(mealId: String, entryId: String) = runCatching { api.deleteEntry(mealId, entryId); refresh().getOrThrow() }
+    suspend fun upload(mealId: String, entryId: String, name: String, stream: InputStream): Result<MahlzeitBild> = runCatching {
         val body = stream.readBytes().toRequestBody("image/*".toMediaType())
-        api.upload(MultipartBody.Part.createFormData("datei", name, body)).url
+        api.upload(mealId, entryId, MultipartBody.Part.createFormData("datei", name, body)).withResolvedImageUrl()
+            .also { refresh().getOrThrow() }
     }
     private suspend fun cache(items: List<Mahlzeit>) { dao.clear(); dao.upsertAll(items.map { MahlzeitEntity(it.id, json.encodeToString(Mahlzeit.serializer(), it)) }) }
-    private fun Mahlzeit.withResolvedImageUrls() = copy(bilder = bilder.map { image -> image.copy(url = if (image.url.startsWith("/")) baseUrl.dropLast(1) + image.url else image.url) })
-    private fun Mahlzeit.withRelativeImageUrls() = copy(bilder = bilder.map { image -> image.copy(url = image.url.substringAfter("/uploads/", image.url).let { if (it == image.url) image.url else "/uploads/$it" }) })
+    private fun MahlzeitBild.withResolvedImageUrl() = copy(url = if (url.startsWith("/")) baseUrl.dropLast(1) + url else url)
+    private fun MahlzeitBild.withRelativeImageUrl() = copy(url = url.substringAfter("/uploads/", url).let { if (it == url) url else "/uploads/$it" })
+    private fun MahlzeitEintrag.withResolvedImageUrls() = copy(bilder = bilder.map { it.withResolvedImageUrl() })
+    private fun MahlzeitEintrag.withRelativeImageUrls() = copy(bilder = bilder.map { it.withRelativeImageUrl() })
+    private fun Mahlzeit.withResolvedImageUrls() = copy(eintraege = eintraege.map { it.withResolvedImageUrls() })
+    private fun Mahlzeit.withRelativeImageUrls() = copy(eintraege = eintraege.map { it.withRelativeImageUrls() })
 }

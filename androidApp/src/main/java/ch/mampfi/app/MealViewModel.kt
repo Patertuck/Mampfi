@@ -30,10 +30,12 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
         foregroundRefreshJob = null
     }
     fun refresh() = viewModelScope.launch { repository.refresh().onFailure { _message.emit("Aktualisierung fehlgeschlagen – lokale Daten werden angezeigt.") } }
-    fun save(meal: Mahlzeit) = viewModelScope.launch { repository.save(meal).onSuccess { _message.emit("Mahlzeit gespeichert.") }.onFailure { _message.emit("Speichern fehlgeschlagen.") } }
-    fun deleteMeal(id: String) = viewModelScope.launch { repository.delete(id).onSuccess { _message.emit("Mahlzeit gelöscht.") }.onFailure { _message.emit("Löschen fehlgeschlagen.") } }
-    fun removeDate(id: String, date: LocalDate) = viewModelScope.launch { repository.removeDate(id, date.toString()).onSuccess { _message.emit("Termin entfernt.") }.onFailure { _message.emit("Löschen fehlgeschlagen.") } }
-    fun addImage(meal: Mahlzeit, date: LocalDate, name: String, stream: () -> java.io.InputStream) = viewModelScope.launch {
-        repository.upload(name, stream()).onSuccess { url -> save(meal.copy(bilder = meal.bilder + MahlzeitBild(url, date.toString()))) }.onFailure { _message.emit("Bild-Upload fehlgeschlagen.") }
+    fun createMeal(meal: Mahlzeit, entry: MahlzeitEintrag) = viewModelScope.launch { repository.createMeal(meal, entry).notifySave() }
+    fun createEntry(meal: Mahlzeit, entry: MahlzeitEintrag) = viewModelScope.launch { repository.createEntry(meal, entry).notifySave() }
+    fun updateEntry(meal: Mahlzeit, entry: MahlzeitEintrag) = viewModelScope.launch { repository.updateEntry(meal, entry).notifySave() }
+    fun deleteEntry(mealId: String, entryId: String) = viewModelScope.launch { repository.deleteEntry(mealId, entryId).onSuccess { _message.emit("Eintrag gelöscht.") }.onFailure { _message.emit("Löschen fehlgeschlagen.") } }
+    fun addImage(mealId: String, entryId: String, name: String, stream: () -> java.io.InputStream) = viewModelScope.launch {
+        repository.upload(mealId, entryId, name, stream()).onFailure { _message.emit("Bild-Upload fehlgeschlagen.") }
     }
+    private suspend fun Result<Unit>.notifySave() = onSuccess { _message.emit("Mahlzeit gespeichert.") }.onFailure { _message.emit("Speichern fehlgeschlagen.") }
 }

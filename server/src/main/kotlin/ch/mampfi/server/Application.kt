@@ -21,13 +21,16 @@ import java.io.File
 import java.time.LocalDate
 import java.util.UUID
 
-@Serializable data class MahlzeitBild(val url: String, val datum: String)
-@Serializable data class MahlzeitBewertung(val werte: List<Double>, val datum: String)
+@Serializable data class MahlzeitBild(val id: String = UUID.randomUUID().toString(), val url: String)
+@Serializable data class MahlzeitBewertung(val werte: List<Double>)
+@Serializable data class MahlzeitEintrag(
+    val id: String = UUID.randomUUID().toString(), val datum: String,
+    val bilder: List<MahlzeitBild> = emptyList(), val bewertung: MahlzeitBewertung? = null,
+)
 @Serializable data class Mahlzeit(
     val id: String = UUID.randomUUID().toString(), val name: String,
     val rezeptLink: String? = null, val tags: List<String> = emptyList(),
-    val termine: List<String> = emptyList(), val bilder: List<MahlzeitBild> = emptyList(),
-    val bewertungen: List<MahlzeitBewertung> = emptyList()
+    val eintraege: List<MahlzeitEintrag> = emptyList(),
 )
 
 fun main() {
@@ -36,7 +39,7 @@ fun main() {
 
 fun Application.module(
     databasePath: String = System.getenv("DATABASE_URL") ?: "mampfi.db",
-    uploadDirectory: File = File(System.getenv("UPLOAD_DIR") ?: "uploads")
+    uploadDirectory: File = File(System.getenv("UPLOAD_DIR") ?: "uploads"),
 ) {
     val uploads = uploadDirectory.apply { mkdirs() }
     val repository = MealRepository(databasePath)
@@ -51,42 +54,96 @@ fun Application.module(
         staticFiles("/uploads", uploads)
         route("/api/mahlzeiten") {
             get { call.respond(repository.all()) }
-            get("/{id}") { repository.find(call.parameters["id"]!!)?.let { call.respond(it) }
-                ?: call.respond(HttpStatusCode.NotFound) }
-            post { val meal = call.receive<Mahlzeit>(); validate(meal)?.let { call.respond(HttpStatusCode.BadRequest, it); return@post }
-                if (repository.find(meal.id) != null) call.respond(HttpStatusCode.Conflict) else { repository.insert(meal); call.respond(HttpStatusCode.Created, meal) } }
-            put("/{id}") { val id = call.parameters["id"]!!; val meal = call.receive<Mahlzeit>().copy(id = id)
-                validate(meal)?.let { call.respond(HttpStatusCode.BadRequest, it); return@put }
-                if (repository.update(meal)) call.respond(meal) else call.respond(HttpStatusCode.NotFound) }
-            delete("/{id}") { val meal = repository.find(call.parameters["id"]!!)
-                if (meal == null) call.respond(HttpStatusCode.NotFound) else {
-                    meal.bilder.mapNotNull { it.url.substringAfterLast('/').takeIf { n -> n.isNotBlank() } }.forEach { File(uploads, it).delete() }
-                    repository.delete(meal.id); call.respond(HttpStatusCode.NoContent)
+            get("/{id}") { repository.find(call.parameters["id"]!!)?.let { call.respond(it) } ?: call.respond(HttpStatusCode.NotFound) }
+            post {
+                val meal = call.receive<Mahlzeit>()
+                validate(meal, requireInitialEntry = true)?.let { call.respond(HttpStatusCode.BadRequest, it); return@post }
+                if (repository.find(meal.id) != null) call.respond(HttpStatusCode.Conflict) else try {
+                    repository.insert(meal)
+                    call.respond(HttpStatusCode.Created, repository.find(meal.id)!!)
+                } catch (error: java.sql.SQLException) {
+                    if (error.isConflict()) call.respond(HttpStatusCode.Conflict) else throw error
                 }
             }
-            delete("/{id}/termine/{datum}") { val id = call.parameters["id"]!!; val date = call.parameters["datum"]!!
-                val meal = repository.find(id) ?: run { call.respond(HttpStatusCode.NotFound); return@delete }
-                repository.update(meal.copy(termine = meal.termine.filterNot { it == date })); call.respond(HttpStatusCode.NoContent)
+            put("/{id}") {
+                val id = call.parameters["id"]!!
+                val meal = call.receive<Mahlzeit>().copy(id = id)
+                validateShared(meal)?.let { call.respond(HttpStatusCode.BadRequest, it); return@put }
+                if (repository.updateMeal(meal)) call.respond(repository.find(id)!!) else call.respond(HttpStatusCode.NotFound)
             }
-        }
-        post("/api/bilder") {
-            val part = call.receiveMultipart().readPart() as? PartData.FileItem
-                ?: run { call.respond(HttpStatusCode.BadRequest, mapOf("fehler" to "Bilddatei fehlt")); return@post }
-            val extension = part.originalFileName?.substringAfterLast('.', "jpg")?.lowercase()?.takeIf { it.matches(Regex("[a-z0-9]{1,5}")) } ?: "jpg"
-            val filename = "${UUID.randomUUID()}.$extension"
-            part.provider().copyAndClose(File(uploads, filename).writeChannel())
-            part.dispose()
-            call.respond(mapOf("url" to "/uploads/$filename"))
+            post("/{id}/eintraege") {
+                val mealId = call.parameters["id"]!!
+                val entry = call.receive<MahlzeitEintrag>()
+                validateEntry(entry)?.let { call.respond(HttpStatusCode.BadRequest, it); return@post }
+                try {
+                    if (repository.insertEntry(mealId, entry)) call.respond(HttpStatusCode.Created, entry) else call.respond(HttpStatusCode.NotFound)
+                } catch (error: java.sql.SQLException) {
+                    if (error.isConflict()) call.respond(HttpStatusCode.Conflict) else throw error
+                }
+            }
+            put("/{id}/eintraege/{entryId}") {
+                val mealId = call.parameters["id"]!!
+                val entryId = call.parameters["entryId"]!!
+                val entry = call.receive<MahlzeitEintrag>().copy(id = entryId)
+                validateEntry(entry)?.let { call.respond(HttpStatusCode.BadRequest, it); return@put }
+                try {
+                    if (repository.updateEntry(mealId, entry)) {
+                        call.respond(repository.find(mealId)!!.eintraege.first { it.id == entryId })
+                    } else call.respond(HttpStatusCode.NotFound)
+                } catch (error: java.sql.SQLException) {
+                    if (error.isConflict()) call.respond(HttpStatusCode.Conflict) else throw error
+                }
+            }
+            delete("/{id}/eintraege/{entryId}") {
+                val deleted = repository.deleteEntry(call.parameters["id"]!!, call.parameters["entryId"]!!)
+                    ?: run { call.respond(HttpStatusCode.NotFound); return@delete }
+                deleted.imageUrls.forEach { deleteUploadedFile(uploads, it) }
+                call.respond(HttpStatusCode.NoContent)
+            }
+            post("/{id}/eintraege/{entryId}/bilder") {
+                val part = call.receiveMultipart().readPart() as? PartData.FileItem
+                    ?: run { call.respond(HttpStatusCode.BadRequest, mapOf("fehler" to "Bilddatei fehlt")); return@post }
+                val image = saveImage(part, uploads)
+                if (repository.addImage(call.parameters["id"]!!, call.parameters["entryId"]!!, image)) call.respond(image) else {
+                    deleteUploadedFile(uploads, image.url)
+                    call.respond(HttpStatusCode.NotFound)
+                }
+            }
         }
     }
 }
 
-private fun validate(meal: Mahlzeit): Map<String, String>? = when {
+private fun validateShared(meal: Mahlzeit): Map<String, String>? = when {
     meal.name.isBlank() -> mapOf("fehler" to "Name darf nicht leer sein")
     "VEGAN" in meal.tags && "VEGETARISCH" in meal.tags -> mapOf("fehler" to "Eine Mahlzeit kann nicht gleichzeitig vegan und vegetarisch sein")
-    meal.termine.any { runCatching { LocalDate.parse(it) }.isFailure } -> mapOf("fehler" to "Ungültiges Datum")
-    meal.termine.distinct().size != meal.termine.size -> mapOf("fehler" to "Termin darf nicht doppelt vorkommen")
-    meal.bewertungen.any { it.werte.size != 2 } -> mapOf("fehler" to "Jede Bewertung braucht genau zwei Werte")
-    meal.bewertungen.any { bewertung -> bewertung.werte.any { it !in 1.0..10.0 } } -> mapOf("fehler" to "Bewertung muss zwischen 1 und 10 liegen")
     else -> null
 }
+
+private fun validate(meal: Mahlzeit, requireInitialEntry: Boolean): Map<String, String>? =
+    validateShared(meal) ?: when {
+        requireInitialEntry && meal.eintraege.size != 1 -> mapOf("fehler" to "Eine neue Mahlzeit braucht genau einen Eintrag")
+        meal.eintraege.map { it.datum }.distinct().size != meal.eintraege.size -> mapOf("fehler" to "Termin darf nicht doppelt vorkommen")
+        else -> meal.eintraege.firstNotNullOfOrNull(::validateEntry)
+    }
+
+private fun validateEntry(entry: MahlzeitEintrag): Map<String, String>? = when {
+    runCatching { LocalDate.parse(entry.datum) }.isFailure -> mapOf("fehler" to "Ungültiges Datum")
+    entry.bewertung?.werte?.size?.let { it != 2 } == true -> mapOf("fehler" to "Jede Bewertung braucht genau zwei Werte")
+    entry.bewertung?.werte?.any { it !in 1.0..10.0 } == true -> mapOf("fehler" to "Bewertung muss zwischen 1 und 10 liegen")
+    else -> null
+}
+
+private suspend fun saveImage(part: PartData.FileItem, uploads: File): MahlzeitBild {
+    val extension = part.originalFileName?.substringAfterLast('.', "jpg")?.lowercase()?.takeIf { it.matches(Regex("[a-z0-9]{1,5}")) } ?: "jpg"
+    val filename = "${UUID.randomUUID()}.$extension"
+    part.provider().copyAndClose(File(uploads, filename).writeChannel())
+    part.dispose()
+    return MahlzeitBild(url = "/uploads/$filename")
+}
+
+private fun deleteUploadedFile(uploads: File, url: String) {
+    val filename = url.substringAfterLast('/').takeIf { it.isNotBlank() } ?: return
+    File(uploads, filename).takeIf { it.parentFile.canonicalFile == uploads.canonicalFile }?.delete()
+}
+
+private fun java.sql.SQLException.isConflict() = message?.contains("UNIQUE constraint failed", ignoreCase = true) == true

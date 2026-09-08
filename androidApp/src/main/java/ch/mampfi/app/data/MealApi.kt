@@ -7,8 +7,10 @@ interface MealApi {
     @GET("api/mahlzeiten") suspend fun all(): List<Mahlzeit>
     @POST("api/mahlzeiten") suspend fun create(@Body meal: Mahlzeit): Mahlzeit
     @PUT("api/mahlzeiten/{id}") suspend fun update(@Path("id") id: String, @Body meal: Mahlzeit): Mahlzeit
-    @DELETE("api/mahlzeiten/{id}") suspend fun delete(@Path("id") id: String)
-    @DELETE("api/mahlzeiten/{id}/termine/{datum}") suspend fun removeDate(@Path("id") id: String, @Path("datum") date: String)
-    @Multipart @POST("api/bilder") suspend fun upload(@Part image: MultipartBody.Part): UploadResult
+    @POST("api/mahlzeiten/{id}/eintraege") suspend fun createEntry(@Path("id") id: String, @Body entry: MahlzeitEintrag): MahlzeitEintrag
+    @PUT("api/mahlzeiten/{id}/eintraege/{entryId}") suspend fun updateEntry(@Path("id") id: String, @Path("entryId") entryId: String, @Body entry: MahlzeitEintrag): MahlzeitEintrag
+    @DELETE("api/mahlzeiten/{id}/eintraege/{entryId}") suspend fun deleteEntry(@Path("id") id: String, @Path("entryId") entryId: String)
+    @Multipart @POST("api/mahlzeiten/{id}/eintraege/{entryId}/bilder") suspend fun upload(
+        @Path("id") id: String, @Path("entryId") entryId: String, @Part image: MultipartBody.Part,
+    ): MahlzeitBild
 }
-@kotlinx.serialization.Serializable data class UploadResult(val url: String)
