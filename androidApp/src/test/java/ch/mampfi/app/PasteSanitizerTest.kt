@@ -1,0 +1,38 @@
+package ch.mampfi.app
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+
+class PasteSanitizerTest {
+    @Test
+    fun `extracts first web url from shared multiline text`() {
+        val pasted = """Mac and cheese
+            |Try this recipe:
+            |https://example.test/mac-and-cheese?servings=4
+            |Alternative: https://example.test/other
+        """.trimMargin()
+
+        assertEquals("https://example.test/mac-and-cheese?servings=4", extractFirstWebUrl(pasted))
+    }
+
+    @Test
+    fun `recognizes www links and removes surrounding sentence punctuation`() {
+        assertEquals("www.example.test/recipe", extractFirstWebUrl("See (www.example.test/recipe)."))
+    }
+
+    @Test
+    fun `extracts a link from surrounding single line text`() {
+        assertEquals("https://example.test/recipe", extractFirstWebUrl("Recipe: https://example.test/recipe by Alex"))
+    }
+
+    @Test
+    fun `returns null when pasted text contains no link`() {
+        assertNull(extractFirstWebUrl("Mac and cheese recipe"))
+    }
+
+    @Test
+    fun `normalizes a multiline pasted meal name`() {
+        assertEquals("Creamy Mac and Cheese", normalizePastedMealName("  Creamy Mac\nand   Cheese  "))
+    }
+}
