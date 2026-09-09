@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,7 +41,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -172,9 +175,11 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
 @Composable
 private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edit: (Mahlzeit, LocalDate) -> Unit) {
     val currentMonth = remember { YearMonth.now() }
+    val calendarStartDate = remember(currentMonth) { currentMonth.minusMonths(24).atDay(1) }
+    val calendarEndDate = remember(currentMonth) { currentMonth.plusMonths(24).atEndOfMonth() }
     val weekState = rememberWeekCalendarState(
-        startDate = currentMonth.minusMonths(24).atDay(1),
-        endDate = currentMonth.plusMonths(24).atEndOfMonth(),
+        startDate = calendarStartDate,
+        endDate = calendarEndDate,
         firstVisibleWeekDate = LocalDate.now(),
         firstDayOfWeek = java.time.DayOfWeek.MONDAY,
     )
@@ -184,6 +189,7 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
     var planInitialised by rememberSaveable { mutableStateOf(false) }
     val planListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val swipeThreshold = with(LocalDensity.current) { 64.dp.toPx() }
     LaunchedEffect(weekState) {
         snapshotFlow { weekState.firstVisibleWeek.days.first().date }
             .distinctUntilChanged()
@@ -206,7 +212,30 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
             planInitialised = true
         }
     }
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
+    val weekSwipeModifier = if (calendarView == "WEEK") Modifier.pointerInput(weekState, swipeThreshold) {
+        var dragDistance = 0f
+        detectHorizontalDragGestures(
+            onDragStart = { dragDistance = 0f },
+            onHorizontalDrag = { change, amount ->
+                change.consume()
+                dragDistance += amount
+            },
+            onDragCancel = { dragDistance = 0f },
+            onDragEnd = {
+                val weekOffset = when {
+                    dragDistance <= -swipeThreshold -> 1L
+                    dragDistance >= swipeThreshold -> -1L
+                    else -> 0L
+                }
+                if (weekOffset != 0L) {
+                    val target = weekState.firstVisibleWeek.days.first().date.plusWeeks(weekOffset)
+                    if (target in calendarStartDate..calendarEndDate) scope.launch { weekState.animateScrollToWeek(target) }
+                }
+                dragDistance = 0f
+            },
+        )
+    } else Modifier
+    Column(Modifier.fillMaxSize().then(weekSwipeModifier).padding(horizontal = 16.dp, vertical = 12.dp)) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             SegmentedButton(
                 selected = calendarView == "WEEK",
@@ -231,6 +260,7 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
             WeekCalendar(
                 modifier = Modifier.height(158.dp),
                 state = weekState,
+                userScrollEnabled = false,
                 weekHeader = { week -> CalendarWeekHeader(week.days.first().date, week.days.last().date) },
                 dayContent = { day -> WeekCalendarCell(day.date, meals.count { day.date.toString() in it.termine }, day.date == selectedDate) { selectedWeekDate = day.date.toString() } },
             )
