@@ -487,33 +487,39 @@ private fun MealImageGallery(meal: Mahlzeit, dismiss: () -> Unit) {
                 modifier = Modifier.fillMaxSize(),
             ) { page ->
                 val image = meal.bilder[page]
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = 64.dp, bottom = 28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
+                        .windowInsetsPadding(WindowInsets.safeDrawing)
+                        .padding(top = 48.dp, bottom = 12.dp),
                 ) {
                     AsyncImage(
                         model = image.url,
                         contentDescription = "${meal.name}, Bild ${page + 1}",
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
+                            .fillMaxSize()
+                            .padding(bottom = 52.dp),
                         contentScale = ContentScale.Fit,
                     )
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = "${formatImageDate(image.datum)} · ${page + 1} von ${meal.bilder.size}",
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                    Surface(
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        color = Color.Black.copy(alpha = 0.72f),
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Text(
+                            text = "${formatImageDate(image.datum)} · ${page + 1} von ${meal.bilder.size}",
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
             }
             IconButton(
                 onClick = dismiss,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
+                    .statusBarsPadding()
                     .padding(8.dp),
             ) {
                 Icon(Icons.Outlined.Close, contentDescription = "Galerie schließen", tint = Color.White)
@@ -599,17 +605,24 @@ private fun RecipeLinkField(link: String, editingExistingMeal: Boolean, update: 
     }
 }
 
+private data class PendingEntryImage(val upload: PendingImageUpload, val preview: Any)
+
 @Composable
 private fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entryId: String?, done: () -> Unit) {
     val meals by vm.meals.collectAsState(); val selectedMeal = meals.find { it.id == mealId }; val existingEntry = selectedMeal?.eintraege?.find { it.id == entryId }; var chosen by remember { mutableStateOf<Mahlzeit?>(null) }
     var name by remember(selectedMeal) { mutableStateOf(selectedMeal?.name ?: "") }; var link by remember(selectedMeal) { mutableStateOf(selectedMeal?.rezeptLink ?: "") }
     var tags by remember(selectedMeal) { mutableStateOf(selectedMeal?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet()) }
     val existingRating = existingEntry?.bewertung; var ratingOne by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(0)?.toString().orEmpty()) }; var ratingTwo by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(1)?.toString().orEmpty()) }
-    var dateText by remember { mutableStateOf(date.toString()) }; var expanded by remember { mutableStateOf(false) }; var confirmDelete by remember { mutableStateOf(false) }
+    var dateText by remember { mutableStateOf(date.toString()) }; var expanded by remember { mutableStateOf(false) }; var confirmDelete by remember { mutableStateOf(false) }; var pendingImage by remember { mutableStateOf<PendingEntryImage?>(null) }
     val context = LocalContext.current; val selectedDate = runCatching { LocalDate.parse(dateText) }.getOrNull()
-    fun uploaded(stream: () -> java.io.InputStream, filename: String) { val meal = selectedMeal ?: return; val entry = existingEntry ?: return; vm.addImage(meal.id, entry.id, filename, stream) }
-    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let { uploaded({ context.contentResolver.openInputStream(it)!! }, "galerie.jpg") } }
-    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? -> bitmap?.let { b -> val bytes = ByteArrayOutputStream().also { b.compress(Bitmap.CompressFormat.JPEG, 90, it) }.toByteArray(); uploaded({ ByteArrayInputStream(bytes) }, "kamera.jpg") } }
+    fun selectedImage(stream: () -> java.io.InputStream, filename: String, preview: Any) {
+        val meal = selectedMeal
+        val entry = existingEntry
+        if (meal != null && entry != null) vm.addImage(meal.id, entry.id, filename, stream)
+        else pendingImage = PendingEntryImage(PendingImageUpload(filename, stream), preview)
+    }
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let { selectedImage({ context.contentResolver.openInputStream(it)!! }, "galerie.jpg", it) } }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? -> bitmap?.let { b -> val bytes = ByteArrayOutputStream().also { b.compress(Bitmap.CompressFormat.JPEG, 90, it) }.toByteArray(); selectedImage({ ByteArrayInputStream(bytes) }, "kamera.jpg", b) } }
     LazyColumn(
         modifier = Modifier.fillMaxSize().imePadding(),
         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 32.dp),
@@ -620,9 +633,18 @@ private fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entr
         item { FormSection("Eigenschaften") { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Tag.entries.forEach { tag -> FilterChip(tag in tags, { tags = tags.toggleMealTag(tag) }, { Text(tag.label) }) } } } }
         item { FormSection("Bewertung") { Text("Wenn ihr das Essen bewertet, gebt beide Bewertungen ein.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(ratingOne, { ratingOne = it }, label = { Text("Person 1 (1,00–10,00)") }, modifier = Modifier.fillMaxWidth(), singleLine = true); OutlinedTextField(ratingTwo, { ratingTwo = it }, label = { Text("Person 2 (1,00–10,00)") }, modifier = Modifier.fillMaxWidth(), singleLine = true) } }
         item { FormSection("Termin") { OutlinedTextField(dateText, { dateText = it }, label = { Text("Datum (JJJJ-MM-TT)") }, isError = selectedDate == null, modifier = Modifier.fillMaxWidth(), singleLine = true) } }
+        item { FormSection("Bild") {
+            pendingImage?.let { image ->
+                AsyncImage(image.preview, "Ausgewähltes Bild", Modifier.fillMaxWidth().height(180.dp).clip(MaterialTheme.shapes.small), contentScale = ContentScale.Crop)
+                Text("Das Bild wird beim Speichern hochgeladen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton({ gallery.launch("image/*") }, Modifier.weight(1f)) { Icon(Icons.Outlined.Image, null); Spacer(Modifier.width(6.dp)); Text("Galerie") }
+                OutlinedButton({ camera.launch(null) }, Modifier.weight(1f)) { Icon(Icons.Outlined.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Kamera") }
+            }
+        } }
         item { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { val ratingTexts = listOf(ratingOne, ratingTwo); val ratingsProvided = ratingTexts.any { it.isNotBlank() }; val validRatings = ratingTexts.map { it.replace(',', '.').toDoubleOrNull()?.takeIf { value -> value in 1.0..10.0 } }; val validDate = selectedDate ?: return@Button; if (name.isBlank() || (ratingsProvided && validRatings.any { it == null })) return@Button; val base = selectedMeal ?: chosen ?: Mahlzeit(name = name.trim()); val meal = base.copy(name = name.trim(), rezeptLink = link.trim().ifBlank { null }, tags = tags.normalizedDietTags().map { it.name }); val rating = if (ratingsProvided) MahlzeitBewertung(validRatings.filterNotNull()) else null; val occurrence = existingEntry?.copy(datum = validDate.toString(), bewertung = rating) ?: MahlzeitEintrag(datum = validDate.toString(), bewertung = rating); when { existingEntry != null -> vm.updateEntry(meal, occurrence); selectedMeal != null || chosen != null -> vm.createEntry(meal, occurrence); else -> vm.createMeal(meal, occurrence) }; done() }, modifier = Modifier.fillMaxWidth()) { Text("Speichern") }
-            if (existingEntry != null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton({ gallery.launch("image/*") }, Modifier.weight(1f)) { Icon(Icons.Outlined.Image, null); Spacer(Modifier.width(6.dp)); Text("Galerie") }; OutlinedButton({ camera.launch(null) }, Modifier.weight(1f)) { Icon(Icons.Outlined.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Kamera") } }
+            Button(onClick = { val ratingTexts = listOf(ratingOne, ratingTwo); val ratingsProvided = ratingTexts.any { it.isNotBlank() }; val validRatings = ratingTexts.map { it.replace(',', '.').toDoubleOrNull()?.takeIf { value -> value in 1.0..10.0 } }; val validDate = selectedDate ?: return@Button; if (name.isBlank() || (ratingsProvided && validRatings.any { it == null })) return@Button; val base = selectedMeal ?: chosen ?: Mahlzeit(name = name.trim()); val meal = base.copy(name = name.trim(), rezeptLink = link.trim().ifBlank { null }, tags = tags.normalizedDietTags().map { it.name }); val rating = if (ratingsProvided) MahlzeitBewertung(validRatings.filterNotNull()) else null; val occurrence = existingEntry?.copy(datum = validDate.toString(), bewertung = rating) ?: MahlzeitEintrag(datum = validDate.toString(), bewertung = rating); when { existingEntry != null -> vm.updateEntry(meal, occurrence); selectedMeal != null || chosen != null -> vm.createEntry(meal, occurrence, pendingImage?.upload); else -> vm.createMeal(meal, occurrence, pendingImage?.upload) }; done() }, modifier = Modifier.fillMaxWidth()) { Text("Speichern") }
         } }
         if (existingEntry != null) item { Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) { TextButton({ confirmDelete = true }, Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Icon(Icons.Outlined.DeleteOutline, null); Spacer(Modifier.width(4.dp)); Text("Eintrag löschen") } } }
     }

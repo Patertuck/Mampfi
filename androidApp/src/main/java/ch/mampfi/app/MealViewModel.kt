@@ -9,6 +9,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.io.InputStream
+
+data class PendingImageUpload(val filename: String, val openStream: () -> InputStream)
 
 class MealViewModel(private val repository: MealRepository) : ViewModel() {
     val meals = repository.meals.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -30,12 +33,37 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
         foregroundRefreshJob = null
     }
     fun refresh() = viewModelScope.launch { repository.refresh().onFailure { _message.emit("Aktualisierung fehlgeschlagen – lokale Daten werden angezeigt.") } }
-    fun createMeal(meal: Mahlzeit, entry: MahlzeitEintrag) = viewModelScope.launch { repository.createMeal(meal, entry).notifySave() }
-    fun createEntry(meal: Mahlzeit, entry: MahlzeitEintrag) = viewModelScope.launch { repository.createEntry(meal, entry).notifySave() }
+    fun createMeal(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null) = viewModelScope.launch {
+        saveWithOptionalImage(repository.createMeal(meal, entry), meal.id, entry.id, image)
+    }
+    fun createEntry(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null) = viewModelScope.launch {
+        saveWithOptionalImage(repository.createEntry(meal, entry), meal.id, entry.id, image)
+    }
     fun updateEntry(meal: Mahlzeit, entry: MahlzeitEintrag) = viewModelScope.launch { repository.updateEntry(meal, entry).notifySave() }
     fun deleteEntry(mealId: String, entryId: String) = viewModelScope.launch { repository.deleteEntry(mealId, entryId).onSuccess { _message.emit("Eintrag gelöscht.") }.onFailure { _message.emit("Löschen fehlgeschlagen.") } }
-    fun addImage(mealId: String, entryId: String, name: String, stream: () -> java.io.InputStream) = viewModelScope.launch {
-        repository.upload(mealId, entryId, name, stream()).onFailure { _message.emit("Bild-Upload fehlgeschlagen.") }
+    fun addImage(mealId: String, entryId: String, name: String, stream: () -> InputStream) = viewModelScope.launch {
+        val input = runCatching(stream).getOrElse {
+            _message.emit("Bild-Upload fehlgeschlagen.")
+            return@launch
+        }
+        repository.upload(mealId, entryId, name, input).onFailure { _message.emit("Bild-Upload fehlgeschlagen.") }
+    }
+    private suspend fun saveWithOptionalImage(save: Result<Unit>, mealId: String, entryId: String, image: PendingImageUpload?) {
+        if (save.isFailure) {
+            _message.emit("Speichern fehlgeschlagen.")
+            return
+        }
+        if (image == null) {
+            _message.emit("Mahlzeit gespeichert.")
+            return
+        }
+        val upload = runCatching(image.openStream).fold(
+            onSuccess = { repository.upload(mealId, entryId, image.filename, it) },
+            onFailure = { Result.failure(it) },
+        )
+        upload
+            .onSuccess { _message.emit("Mahlzeit und Bild gespeichert.") }
+            .onFailure { _message.emit("Mahlzeit gespeichert, Bild-Upload fehlgeschlagen.") }
     }
     private suspend fun Result<Unit>.notifySave() = onSuccess { _message.emit("Mahlzeit gespeichert.") }.onFailure { _message.emit("Speichern fehlgeschlagen.") }
 }
