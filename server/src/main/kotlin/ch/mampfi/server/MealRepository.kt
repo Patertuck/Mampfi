@@ -14,7 +14,7 @@ class MealRepository(private val database: String) {
     init {
         try {
             connection.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
-            migrateIfNeeded()
+            initializeSchema()
         } catch (error: Throwable) {
             connection.close()
             throw error
@@ -151,50 +151,22 @@ class MealRepository(private val database: String) {
         statement.setString(4, json.encodeToString(meal.tags))
     }
 
-    private fun migrateIfNeeded() {
+    private fun initializeSchema() {
         val columns = tableColumns("mahlzeiten")
         if (columns.isEmpty()) {
             createSchema()
             setSchemaVersion()
             return
         }
-        if ("termine" !in columns) {
-            createSchema()
-            setSchemaVersion()
-            return
+        check("termine" !in columns) {
+            "Legacy v1 database schema is no longer supported; start once with a migration-capable backend image before upgrading"
         }
-        DatabaseBackup.create(database, reason = "pre-migration-v1-to-v2")
-        transaction {
-            connection.createStatement().use { it.executeUpdate("ALTER TABLE mahlzeiten RENAME TO mahlzeiten_legacy") }
-            createSchema()
-            connection.createStatement().use { statement ->
-                statement.executeQuery("SELECT * FROM mahlzeiten_legacy").use { rows -> while (rows.next()) migrateLegacyMeal(rows) }
-            }
-            connection.createStatement().use { it.executeUpdate("DROP TABLE mahlzeiten_legacy") }
-            setSchemaVersion()
+        val requiredColumns = setOf("id", "name", "rezept_link", "tags")
+        check(columns.containsAll(requiredColumns)) {
+            "Unsupported mahlzeiten schema; expected columns $requiredColumns but found $columns"
         }
-    }
-
-    private fun migrateLegacyMeal(rows: java.sql.ResultSet) {
-        val mealId = rows.getString("id")
-        val dates: List<String> = json.decodeFromString(rows.getString("termine"))
-        val ratings: List<LegacyRating> = json.decodeFromString(rows.getString("bewertungen"))
-        val images: List<LegacyImage> = json.decodeFromString(rows.getString("bilder"))
-        connection.prepareStatement("INSERT INTO mahlzeiten (id, name, rezept_link, tags) VALUES (?, ?, ?, ?)").use { statement ->
-            statement.setString(1, mealId)
-            statement.setString(2, rows.getString("name"))
-            statement.setString(3, rows.getString("rezept_link"))
-            statement.setString(4, rows.getString("tags"))
-            statement.executeUpdate()
-        }
-        val allDates = linkedSetOf<String>().apply { addAll(dates); addAll(ratings.map { it.datum }); addAll(images.map { it.datum }) }
-        allDates.forEach { date ->
-            insertEntryRow(mealId, MahlzeitEintrag(
-                datum = date,
-                bilder = images.filter { it.datum == date }.map { MahlzeitBild(url = it.url) },
-                bewertung = ratings.lastOrNull { it.datum == date }?.let { MahlzeitBewertung(it.werte) },
-            ))
-        }
+        createSchema()
+        setSchemaVersion()
     }
 
     private fun createSchema() {
@@ -220,6 +192,3 @@ class MealRepository(private val database: String) {
         } finally { connection.autoCommit = previousAutoCommit }
     }
 }
-
-@kotlinx.serialization.Serializable private data class LegacyImage(val url: String, val datum: String)
-@kotlinx.serialization.Serializable private data class LegacyRating(val werte: List<Double>, val datum: String)

@@ -11,3 +11,4 @@ server/mampfi.db
 server/uploads/
 data/
 *.hprof
+/server/backups

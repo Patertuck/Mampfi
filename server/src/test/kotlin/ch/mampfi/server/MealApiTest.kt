@@ -13,8 +13,6 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
@@ -90,29 +88,23 @@ class MealApiTest {
     }
 
     @Test
-    fun `legacy aggregate rows migrate into dated entries`() {
-        val dataDirectory = createTempDirectory("mampfi-migration-test-").toFile()
+    fun `fresh v2 schema is initialized and can be reopened`() {
+        val dataDirectory = createTempDirectory("mampfi-schema-test-").toFile()
         val database = File(dataDirectory, "mampfi.db")
-        DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeUpdate("CREATE TABLE mahlzeiten (id TEXT PRIMARY KEY, name TEXT NOT NULL, rezept_link TEXT, tags TEXT NOT NULL, termine TEXT NOT NULL, bilder TEXT NOT NULL, bewertungen TEXT NOT NULL)")
-                statement.executeUpdate("INSERT INTO mahlzeiten VALUES ('mac', 'Mac and cheese', 'https://example.test/recipe', '[\"VEGETARISCH\"]', '[\"2026-03-03\",\"2027-06-06\"]', '[{\"url\":\"/uploads/first.jpg\",\"datum\":\"2026-03-03\"}]', '[{\"werte\":[8.0,9.0],\"datum\":\"2026-03-03\"}]')")
-                statement.executeUpdate("INSERT INTO mahlzeiten VALUES ('unused', 'Unused', NULL, '[]', '[]', '[]', '[]')")
-            }
-        }
-
         val repository = MealRepository(database.path)
-        val migrated = assertNotNull(repository.find("mac"))
-        assertEquals("https://example.test/recipe", migrated.rezeptLink)
-        assertEquals(2, migrated.eintraege.size)
-        assertNotEquals(migrated.eintraege[0].id, migrated.eintraege[1].id)
-        assertEquals(listOf("/uploads/first.jpg"), migrated.eintraege.first { it.datum == "2026-03-03" }.bilder.map { it.url })
-        assertEquals(listOf(8.0, 9.0), migrated.eintraege.first { it.datum == "2026-03-03" }.bewertung?.werte)
-        assertTrue(assertNotNull(repository.find("unused")).eintraege.isEmpty())
-        assertTrue(File(dataDirectory, "backups").listFiles().orEmpty().any { it.name.startsWith("mampfi-pre-migration-v1-to-v2-") })
+        repository.insert(Mahlzeit(id = "mac", name = "Mac and cheese", eintraege = listOf(MahlzeitEintrag(datum = "2026-03-03"))))
 
         val reopened = MealRepository(database.path)
-        assertEquals(2, assertNotNull(reopened.find("mac")).eintraege.size)
+        assertEquals("Mac and cheese", reopened.find("mac")?.name)
+        DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(2, result.getInt(1)) }
+                statement.executeQuery("SELECT name FROM sqlite_master WHERE type = 'table'").use { rows ->
+                    val tables = buildSet { while (rows.next()) add(rows.getString("name")) }
+                    assertTrue(tables.containsAll(setOf("mahlzeiten", "mahlzeit_eintraege", "mahlzeit_bilder")))
+                }
+            }
+        }
     }
 
     @Test
@@ -138,13 +130,13 @@ class MealApiTest {
     }
 
     @Test
-    fun `migration does not start when its backup cannot be created`() {
-        val dataDirectory = createTempDirectory("mampfi-backup-failure-test-").toFile()
+    fun `legacy v1 schema is rejected without modification`() {
+        val dataDirectory = createTempDirectory("mampfi-legacy-schema-test-").toFile()
         val database = File(dataDirectory, "mampfi.db")
         createLegacyDatabase(database)
-        File(dataDirectory, "backups").writeText("blocks creation of the backup directory")
 
-        assertFailsWith<Throwable> { MealRepository(database.path) }
+        val failure = assertFailsWith<IllegalStateException> { MealRepository(database.path) }
+        assertContains(failure.message.orEmpty(), "Legacy v1 database schema is no longer supported")
 
         DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
             connection.createStatement().use { statement ->
@@ -153,41 +145,11 @@ class MealApiTest {
                     assertTrue("termine" in columns)
                     assertFalse("eintraege" in columns)
                 }
-                statement.executeQuery("PRAGMA user_version").use { result -> assertEquals(0, result.getInt(1)) }
+                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(0, result.getInt(1)) }
+                statement.executeQuery("SELECT COUNT(*) FROM mahlzeiten").use { result -> assertTrue(result.next()); assertEquals(1, result.getInt(1)) }
             }
         }
-    }
-
-    @Test
-    fun `failed migration rolls back to the legacy schema and keeps its backup`() {
-        val dataDirectory = createTempDirectory("mampfi-migration-rollback-test-").toFile()
-        val database = File(dataDirectory, "mampfi.db")
-        createLegacyDatabase(database)
-        DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
-            connection.createStatement().use { it.executeUpdate("UPDATE mahlzeiten SET termine = 'invalid-json'") }
-        }
-
-        assertFailsWith<Throwable> { MealRepository(database.path) }
-
-        DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeQuery("PRAGMA table_info(mahlzeiten)").use { rows ->
-                    val columns = buildSet { while (rows.next()) add(rows.getString("name")) }
-                    assertTrue("termine" in columns)
-                }
-                statement.executeQuery("SELECT termine FROM mahlzeiten WHERE id = 'legacy'").use { result ->
-                    assertTrue(result.next())
-                    assertEquals("invalid-json", result.getString(1))
-                }
-            }
-        }
-        val backup = assertNotNull(File(dataDirectory, "backups").listFiles()?.singleOrNull())
-        DriverManager.getConnection("jdbc:sqlite:${backup.path}").use { connection ->
-            connection.createStatement().executeQuery("PRAGMA integrity_check").use { result ->
-                assertTrue(result.next())
-                assertEquals("ok", result.getString(1))
-            }
-        }
+        assertFalse(File(dataDirectory, "backups").exists())
     }
 
     private fun createLegacyDatabase(database: File) {
