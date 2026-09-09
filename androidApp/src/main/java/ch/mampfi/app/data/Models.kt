@@ -14,7 +14,10 @@ enum class Tag(val label: String) { VEGETARISCH("Vegetarisch"), VEGAN("Vegan"), 
 @Serializable data class MahlzeitEintrag(
     val id: String = UUID.randomUUID().toString(), val datum: String,
     val bilder: List<MahlzeitBild> = emptyList(), val bewertung: MahlzeitBewertung? = null,
-)
+) {
+    fun durchschnitt() = bewertung?.werte?.takeIf { it.isNotEmpty() }?.average()
+    fun letztesBild() = bilder.lastOrNull()?.url
+}
 data class DatiertesMahlzeitBild(val url: String, val datum: String)
 @Serializable data class Mahlzeit(
     val id: String = UUID.randomUUID().toString(), val name: String, val rezeptLink: String? = null,

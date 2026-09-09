@@ -48,4 +48,24 @@ class ModelsTest {
         assertEquals("/uploads/second.jpg", meal.letztesBild())
         assertEquals(9.0, meal.durchschnitt())
     }
+
+    @Test
+    fun `dated entries expose only their own picture and rating`() {
+        val first = MahlzeitEintrag(
+            datum = "2026-03-03",
+            bilder = listOf(MahlzeitBild(url = "/uploads/first.jpg")),
+            bewertung = MahlzeitBewertung(listOf(8.0, 9.0)),
+        )
+        val second = MahlzeitEintrag(
+            datum = "2027-06-06",
+            bilder = listOf(MahlzeitBild(url = "/uploads/second.jpg")),
+            bewertung = MahlzeitBewertung(listOf(9.0, 10.0)),
+        )
+
+        assertEquals("/uploads/first.jpg", first.letztesBild())
+        assertEquals(8.5, first.durchschnitt())
+        assertEquals("/uploads/second.jpg", second.letztesBild())
+        assertEquals(9.5, second.durchschnitt())
+        assertEquals(null, MahlzeitEintrag(datum = "2028-01-01").letztesBild())
+    }
 }

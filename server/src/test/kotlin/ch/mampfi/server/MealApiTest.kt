@@ -55,6 +55,10 @@ class MealApiTest {
         val imageFile = File(uploads, imageUrl.substringAfterLast('/'))
         assertTrue(imageFile.isFile)
 
+        val afterUpload = Json.decodeFromString<Mahlzeit>(client.get("/api/mahlzeiten/mac").bodyAsText())
+        assertEquals(listOf(imageUrl), afterUpload.eintraege.first { it.id == firstEntryId }.bilder.map { it.url })
+        assertTrue(afterUpload.eintraege.first { it.id == "entry-2027" }.bilder.isEmpty())
+
         assertEquals(HttpStatusCode.NoContent, client.delete("/api/mahlzeiten/mac/eintraege/$firstEntryId").status)
         assertFalse(imageFile.exists())
         val remaining = client.get("/api/mahlzeiten/mac")

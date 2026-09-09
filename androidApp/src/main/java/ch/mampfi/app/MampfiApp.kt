@@ -295,7 +295,11 @@ private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, plan: () -> Unit,
                 }
             } else {
                 LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(meals, key = { it.id }) { meal -> WeekAgendaMealCard(meal) { edit(meal) } }
+                    items(meals, key = { it.id }) { meal ->
+                        meal.eintraege.firstOrNull { it.datum == date.toString() }?.let { occurrence ->
+                            WeekAgendaMealCard(meal, occurrence) { edit(meal) }
+                        }
+                    }
                 }
             }
             Button(onClick = plan, modifier = Modifier.fillMaxWidth()) { Text("Mahlzeit planen") }
@@ -304,17 +308,17 @@ private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, plan: () -> Unit,
 }
 
 @Composable
-private fun WeekAgendaMealCard(meal: Mahlzeit, click: () -> Unit) = Card(
+private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, click: () -> Unit) = Card(
     modifier = Modifier.fillMaxWidth().clickable(onClick = click),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
 ) {
     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        meal.letztesBild()?.let { AsyncImage(it, null, Modifier.size(64.dp).clip(MaterialTheme.shapes.small)) }
-        Column(Modifier.padding(start = if (meal.letztesBild() == null) 0.dp else 12.dp).weight(1f)) {
+        occurrence.letztesBild()?.let { AsyncImage(it, null, Modifier.size(64.dp).clip(MaterialTheme.shapes.small)) }
+        Column(Modifier.padding(start = if (occurrence.letztesBild() == null) 0.dp else 12.dp).weight(1f)) {
             Text(meal.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             meal.tags.filterNot { it == Tag.VEGETARISCH.name && Tag.VEGAN.name in meal.tags }.takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · ") { tag -> Tag.entries.find { it.name == tag }?.label ?: tag }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-        meal.durchschnitt()?.let { Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) { Text(String.format(Locale.GERMANY, "%.1f", it), Modifier.padding(horizontal = 8.dp, vertical = 5.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer) } }
+        occurrence.durchschnitt()?.let { Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) { Text(String.format(Locale.GERMANY, "%.1f", it), Modifier.padding(horizontal = 8.dp, vertical = 5.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer) } }
         DietMarker(meal, Modifier.padding(start = 8.dp))
     }
 }
@@ -366,7 +370,11 @@ private fun PlanDayRow(date: LocalDate, meals: List<Mahlzeit>, edit: (Mahlzeit, 
             Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = if (date == LocalDate.now()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            meals.forEach { meal -> WeekAgendaMealCard(meal) { edit(meal, date) } }
+            meals.forEach { meal ->
+                meal.eintraege.firstOrNull { it.datum == date.toString() }?.let { occurrence ->
+                    WeekAgendaMealCard(meal, occurrence) { edit(meal, date) }
+                }
+            }
         }
     }
 }
