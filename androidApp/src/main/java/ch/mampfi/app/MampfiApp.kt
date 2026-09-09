@@ -488,21 +488,19 @@ private fun MealImageGallery(meal: Mahlzeit, dismiss: () -> Unit) {
             ) { page ->
                 val image = meal.bilder[page]
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .windowInsetsPadding(WindowInsets.safeDrawing)
-                        .padding(top = 48.dp, bottom = 12.dp),
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     AsyncImage(
                         model = image.url,
                         contentDescription = "${meal.name}, Bild ${page + 1}",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(bottom = 52.dp),
+                        modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit,
                     )
                     Surface(
-                        modifier = Modifier.align(Alignment.BottomCenter),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(bottom = 16.dp),
                         color = Color.Black.copy(alpha = 0.72f),
                         shape = MaterialTheme.shapes.small,
                     ) {
