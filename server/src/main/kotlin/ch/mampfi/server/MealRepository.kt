@@ -3,10 +3,7 @@ package ch.mampfi.server
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.io.File
 import java.sql.DriverManager
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 
 data class DeletedEntry(val imageUrls: List<String>)
 
@@ -15,8 +12,13 @@ class MealRepository(private val database: String) {
     private val connection = DriverManager.getConnection("jdbc:sqlite:$database")
 
     init {
-        connection.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
-        migrateIfNeeded()
+        try {
+            connection.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
+            migrateIfNeeded()
+        } catch (error: Throwable) {
+            connection.close()
+            throw error
+        }
     }
 
     @Synchronized fun all(): List<Mahlzeit> = connection.prepareStatement(
@@ -161,7 +163,7 @@ class MealRepository(private val database: String) {
             setSchemaVersion()
             return
         }
-        backupLegacyDatabase()
+        DatabaseBackup.create(database, reason = "pre-migration-v1-to-v2")
         transaction {
             connection.createStatement().use { it.executeUpdate("ALTER TABLE mahlzeiten RENAME TO mahlzeiten_legacy") }
             createSchema()
@@ -208,14 +210,6 @@ class MealRepository(private val database: String) {
     }
 
     private fun setSchemaVersion() { connection.createStatement().use { it.execute("PRAGMA user_version = 2") } }
-
-    private fun backupLegacyDatabase() {
-        if (database == ":memory:") return
-        val source = File(database)
-        if (!source.isFile) return
-        val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
-        source.copyTo(File(source.parentFile ?: File("."), "${source.name}.pre-entry-migration-$timestamp"), overwrite = false)
-    }
 
     private fun <T> transaction(block: () -> T): T {
         val previousAutoCommit = connection.autoCommit

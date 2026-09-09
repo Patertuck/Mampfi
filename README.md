@@ -34,3 +34,7 @@ Jeder Merge nach `main` startet die GitHub-Actions-Workflow-Datei `.github/workf
 Die erste Release-APK wird manuell auf jedem Telefon installiert. Spätere App-Starts erkennen einen neuen GitHub Release, zeigen dessen Version und laden ihn erst nach Bestätigung herunter. Android zeigt danach immer die Systembestätigung für die Installation.
 
 Die einmalige Keystore- und GitHub-Secrets-Einrichtung steht in [docs/android-releases.md](docs/android-releases.md).
+
+## Automatische Backend-Deployments
+
+GitHub Actions veröffentlicht Backend-Images in GHCR. Der Homeserver aktualisiert den markierten Mampfi-Container mit Watchtower und erstellt davor ein geprüftes SQLite-Backup. Einrichtung, Plattformkonfiguration und Rollback sind in [docs/backend-deployment.md](docs/backend-deployment.md) beschrieben.

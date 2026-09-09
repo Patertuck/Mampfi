@@ -33,7 +33,14 @@ import java.util.UUID
     val eintraege: List<MahlzeitEintrag> = emptyList(),
 )
 
-fun main() {
+fun main(args: Array<String>) {
+    if (args.singleOrNull() == "backup-before-update") {
+        val databasePath = System.getenv("DATABASE_URL") ?: "mampfi.db"
+        val backupDirectory = System.getenv("BACKUP_DIR")?.let(::File) ?: DatabaseBackup.defaultDirectory(databasePath)
+        val backup = DatabaseBackup.create(databasePath, backupDirectory, reason = "pre-update")
+        println("Created verified SQLite backup: ${backup.absolutePath}")
+        return
+    }
     embeddedServer(Netty, port = System.getenv("PORT")?.toIntOrNull() ?: 8080) { module() }.start(wait = true)
 }
 

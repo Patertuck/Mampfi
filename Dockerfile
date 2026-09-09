@@ -7,10 +7,14 @@ RUN sed -i 's/include(":server", ":androidApp")/include(":server")/' settings.gr
 RUN gradle :server:installDist --no-daemon
 
 FROM eclipse-temurin:21-jre
+ARG APP_REVISION=unknown
 WORKDIR /app
 COPY --from=build /workspace/server/build/install/server /app
 ENV PORT=8080 \
     DATABASE_URL=/data/mampfi.db \
-    UPLOAD_DIR=/data/uploads
+    UPLOAD_DIR=/data/uploads \
+    BACKUP_DIR=/data/backups \
+    APP_REVISION=${APP_REVISION}
+LABEL org.opencontainers.image.revision=${APP_REVISION}
 EXPOSE 8080
 ENTRYPOINT ["/app/bin/server"]
