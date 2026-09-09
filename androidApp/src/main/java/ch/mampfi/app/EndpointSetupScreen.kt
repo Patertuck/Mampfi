@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -83,5 +84,15 @@ fun EndpointSetupScreen(store: EndpointSettingsStore, configured: Boolean = fals
             },
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Speichern und verbinden") }
+        if (configured) {
+            Spacer(Modifier.height(20.dp))
+            Text(
+                text = "Version ${BuildConfig.VERSION_NAME}",
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
