@@ -86,6 +86,7 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
     var updateDownloadProgress by remember { mutableStateOf<Int?>(null) }
     var updateDownloadError by remember { mutableStateOf<String?>(null) }
     val currentRoute = nav.currentBackStackEntryAsState().value?.destination?.route
+    val appSettings by endpointStore.settings.collectAsState(initial = EndpointSettings())
     DisposableEffect(lifecycleOwner, vm) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -141,7 +142,7 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
                 nav.navigate("bearbeiten/${latest?.datum ?: LocalDate.now()}?meal=${meal.id}${latest?.let { "&entry=${it.id}" }.orEmpty()}")
             } }
             composable("einstellungen") { EndpointSetupScreen(endpointStore, configured = true) { nav.popBackStack() } }
-            composable("bearbeiten/{date}?meal={meal}&entry={entry}") { entry -> EditScreen(vm, LocalDate.parse(entry.arguments!!.getString("date")!!), entry.arguments?.getString("meal"), entry.arguments?.getString("entry")) { nav.popBackStack() } }
+            composable("bearbeiten/{date}?meal={meal}&entry={entry}") { entry -> EditScreen(vm, LocalDate.parse(entry.arguments!!.getString("date")!!), entry.arguments?.getString("meal"), entry.arguments?.getString("entry"), appSettings.firstRaterName, appSettings.secondRaterName) { nav.popBackStack() } }
         }
     }
     availableUpdate?.let { update ->
@@ -650,7 +651,7 @@ private fun RecipeLinkField(link: String, editingExistingMeal: Boolean, update: 
 private data class PendingEntryImage(val upload: PendingImageUpload, val preview: Any)
 
 @Composable
-private fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entryId: String?, done: () -> Unit) {
+private fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entryId: String?, firstRaterName: String, secondRaterName: String, done: () -> Unit) {
     val meals by vm.meals.collectAsState(); val selectedMeal = meals.find { it.id == mealId }; val existingEntry = selectedMeal?.eintraege?.find { it.id == entryId }; var chosen by remember { mutableStateOf<Mahlzeit?>(null) }
     var name by remember(selectedMeal) { mutableStateOf(selectedMeal?.name ?: "") }; var link by remember(selectedMeal) { mutableStateOf(selectedMeal?.rezeptLink ?: "") }
     var tags by remember(selectedMeal) { mutableStateOf(selectedMeal?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet()) }
@@ -673,7 +674,11 @@ private fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entr
         item { Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) { Column(Modifier.padding(20.dp)) { Text(if (existingEntry == null) "Neues Essen" else "Eintrag bearbeiten", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM yyyy", Locale.GERMAN)), color = MaterialTheme.colorScheme.onPrimaryContainer) } } }
         item { FormSection("Mahlzeit") { OutlinedTextField(name, { value -> name = if ('\n' in value || '\r' in value) normalizePastedMealName(value) else value; expanded = name.isNotBlank() && existingEntry == null }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)); if (expanded) meals.filter { it.name.contains(name, true) }.take(5).forEach { meal -> Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { chosen = meal; name = meal.name; link = meal.rezeptLink.orEmpty(); tags = meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags(); expanded = false }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { meal.letztesBild()?.let { AsyncImage(it, null, Modifier.size(42.dp).clip(MaterialTheme.shapes.small)) }; Column(Modifier.padding(start = 10.dp)) { Text(meal.name, fontWeight = FontWeight.Bold); Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "Noch nicht bewertet", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }; RecipeLinkField(link, selectedMeal != null || chosen != null) { link = it } } }
         item { FormSection("Eigenschaften") { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Tag.entries.forEach { tag -> FilterChip(tag in tags, { tags = tags.toggleMealTag(tag) }, { Text(tag.label) }) } } } }
-        item { FormSection("Bewertung") { Text("Wenn ihr das Essen bewertet, gebt beide Bewertungen ein.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(ratingOne, { ratingOne = it }, label = { Text("Person 1 (1,00–10,00)") }, modifier = Modifier.fillMaxWidth(), singleLine = true); OutlinedTextField(ratingTwo, { ratingTwo = it }, label = { Text("Person 2 (1,00–10,00)") }, modifier = Modifier.fillMaxWidth(), singleLine = true) } }
+        item { FormSection("Bewertung") {
+            Text("Wenn ihr das Essen bewertet, gebt beide Bewertungen ein.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            RaterScoreField(ratingOne, { ratingOne = it }, firstRaterName, FirstRaterColor)
+            RaterScoreField(ratingTwo, { ratingTwo = it }, secondRaterName, SecondRaterColor)
+        } }
         item { FormSection("Termin") { OutlinedTextField(dateText, { dateText = it }, label = { Text("Datum (JJJJ-MM-TT)") }, isError = selectedDate == null, modifier = Modifier.fillMaxWidth(), singleLine = true) } }
         item { FormSection("Bild") {
             pendingImage?.let { image ->
@@ -691,6 +696,24 @@ private fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entr
         if (existingEntry != null) item { Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) { TextButton({ confirmDelete = true }, Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Icon(Icons.Outlined.DeleteOutline, null); Spacer(Modifier.width(4.dp)); Text("Eintrag löschen") } } }
     }
     if (confirmDelete && selectedMeal != null && existingEntry != null) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Eintrag löschen?") }, text = { Text("Nur dieser Termin und seine Bilder werden dauerhaft gelöscht. Beim letzten Eintrag wird auch die Mahlzeit entfernt.") }, confirmButton = { TextButton({ vm.deleteEntry(selectedMeal.id, existingEntry.id); done() }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Löschen") } }, dismissButton = { TextButton({ confirmDelete = false }) { Text("Abbrechen") } })
+}
+
+@Composable
+private fun RaterScoreField(value: String, update: (String) -> Unit, name: String, accent: Color) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = update,
+        label = { Text("$name (1,00–10,00)") },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = accent,
+            unfocusedBorderColor = accent.copy(alpha = 0.7f),
+            focusedLabelColor = accent,
+            unfocusedLabelColor = accent,
+            cursorColor = accent,
+        ),
+    )
 }
 
 @Composable

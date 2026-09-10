@@ -7,6 +7,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
+val FirstRaterColor = Color(0xFF7CFF6B)
+val SecondRaterColor = Color(0xFFD0A2FF)
+
 private val MampfiColors = darkColorScheme(
     primary = Color(0xFFB7D8B4), onPrimary = Color(0xFF102117),
     primaryContainer = Color(0xFF274C35), onPrimaryContainer = Color(0xFFD7F5D2),

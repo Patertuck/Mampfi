@@ -12,7 +12,15 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
-data class EndpointSettings(val lanBaseUrl: String = "", val tailscaleBaseUrl: String = "") {
+const val DEFAULT_FIRST_RATER_NAME = "Person 1"
+const val DEFAULT_SECOND_RATER_NAME = "Person 2"
+
+data class EndpointSettings(
+    val lanBaseUrl: String = "",
+    val tailscaleBaseUrl: String = "",
+    val firstRaterName: String = DEFAULT_FIRST_RATER_NAME,
+    val secondRaterName: String = DEFAULT_SECOND_RATER_NAME,
+) {
     val isConfigured: Boolean get() = lanBaseUrl.isNotBlank()
 }
 
@@ -23,16 +31,26 @@ class EndpointSettingsStore(private val context: Context) {
         .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
         .map(::settingsFrom)
 
-    suspend fun save(lanBaseUrl: String, tailscaleBaseUrl: String) {
+    suspend fun save(lanBaseUrl: String, tailscaleBaseUrl: String, firstRaterName: String, secondRaterName: String) {
+        val normalizedFirstRaterName = normalizeRaterName(firstRaterName)
+        val normalizedSecondRaterName = normalizeRaterName(secondRaterName)
         context.endpointDataStore.edit { preferences ->
             preferences[LAN_BASE_URL] = normalizeEndpoint(lanBaseUrl)
             preferences[TAILSCALE_BASE_URL] = tailscaleBaseUrl.trim().takeIf { it.isNotEmpty() }?.let(::normalizeEndpoint).orEmpty()
+            preferences[FIRST_RATER_NAME] = normalizedFirstRaterName
+            preferences[SECOND_RATER_NAME] = normalizedSecondRaterName
         }
     }
 
     companion object {
         private val LAN_BASE_URL = stringPreferencesKey("lan_base_url")
         private val TAILSCALE_BASE_URL = stringPreferencesKey("tailscale_base_url")
+        private val FIRST_RATER_NAME = stringPreferencesKey("first_rater_name")
+        private val SECOND_RATER_NAME = stringPreferencesKey("second_rater_name")
+
+        fun normalizeRaterName(value: String): String = value.trim().also {
+            require(it.isNotEmpty()) { "Beide Namen müssen ausgefüllt sein" }
+        }
 
         fun normalizeEndpoint(value: String): String {
             val uri = runCatching { URI(value.trim()) }.getOrNull()
@@ -45,6 +63,8 @@ class EndpointSettingsStore(private val context: Context) {
         private fun settingsFrom(preferences: Preferences) = EndpointSettings(
             lanBaseUrl = preferences[LAN_BASE_URL].orEmpty(),
             tailscaleBaseUrl = preferences[TAILSCALE_BASE_URL].orEmpty(),
+            firstRaterName = preferences[FIRST_RATER_NAME] ?: DEFAULT_FIRST_RATER_NAME,
+            secondRaterName = preferences[SECOND_RATER_NAME] ?: DEFAULT_SECOND_RATER_NAME,
         )
     }
 }
