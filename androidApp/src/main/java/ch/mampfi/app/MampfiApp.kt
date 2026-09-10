@@ -189,6 +189,8 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
     var selectedWeekDate by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
     var receivedInitialWeek by remember { mutableStateOf(false) }
     var planInitialised by rememberSaveable { mutableStateOf(false) }
+    var galleryMeal by remember { mutableStateOf<Mahlzeit?>(null) }
+    var galleryImageUrl by remember { mutableStateOf<String?>(null) }
     val planListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val swipeThreshold = with(LocalDensity.current) { 64.dp.toPx() }
@@ -272,12 +274,14 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
                 meals = meals.filter { selectedDate.toString() in it.termine },
                 plan = { open(selectedDate) },
                 edit = { meal -> edit(meal, selectedDate) },
+                openGallery = { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl },
                 modifier = Modifier.weight(1f),
             )
         } else {
-            PlanSchedule(planItems, planListState, open, edit, Modifier.weight(1f))
+            PlanSchedule(planItems, planListState, open, edit, { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl }, Modifier.weight(1f))
         }
     }
+    galleryMeal?.let { meal -> MealImageGallery(meal, galleryImageUrl) { galleryMeal = null; galleryImageUrl = null } }
 }
 
 @Composable
@@ -311,7 +315,7 @@ private fun WeekCalendarCell(date: LocalDate, mealCount: Int, selected: Boolean,
 }
 
 @Composable
-private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, plan: () -> Unit, edit: (Mahlzeit) -> Unit, modifier: Modifier = Modifier) {
+private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, plan: () -> Unit, edit: (Mahlzeit) -> Unit, openGallery: (Mahlzeit, String) -> Unit, modifier: Modifier = Modifier) {
     Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
             Text(date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM", Locale.GERMAN)), modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
@@ -329,7 +333,7 @@ private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, plan: () -> Unit,
                 LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(meals, key = { it.id }) { meal ->
                         meal.eintraege.firstOrNull { it.datum == date.toString() }?.let { occurrence ->
-                            WeekAgendaMealCard(meal, occurrence) { edit(meal) }
+                            WeekAgendaMealCard(meal, occurrence, { edit(meal) }) { imageUrl -> openGallery(meal, imageUrl) }
                         }
                     }
                 }
@@ -340,12 +344,19 @@ private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, plan: () -> Unit,
 }
 
 @Composable
-private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, click: () -> Unit) = Card(
+private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, click: () -> Unit, openGallery: (String) -> Unit) = Card(
     modifier = Modifier.fillMaxWidth().clickable(onClick = click),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
 ) {
     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        occurrence.letztesBild()?.let { AsyncImage(it, null, Modifier.size(64.dp).clip(MaterialTheme.shapes.small)) }
+        occurrence.letztesBild()?.let { imageUrl ->
+            AsyncImage(
+                imageUrl,
+                "Bild von ${meal.name} ansehen",
+                Modifier.size(64.dp).clip(MaterialTheme.shapes.small).clickable { openGallery(imageUrl) },
+                contentScale = ContentScale.Crop,
+            )
+        }
         Column(Modifier.padding(start = if (occurrence.letztesBild() == null) 0.dp else 12.dp).weight(1f)) {
             Text(meal.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             meal.tags.filterNot { it == Tag.VEGETARISCH.name && Tag.VEGAN.name in meal.tags }.takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · ") { tag -> Tag.entries.find { it.name == tag }?.label ?: tag }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -370,7 +381,7 @@ private fun scheduledPlanItems(meals: List<Mahlzeit>): List<PlanItem> {
 }
 
 @Composable
-private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundation.lazy.LazyListState, open: (LocalDate) -> Unit, edit: (Mahlzeit, LocalDate) -> Unit, modifier: Modifier = Modifier) {
+private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundation.lazy.LazyListState, open: (LocalDate) -> Unit, edit: (Mahlzeit, LocalDate) -> Unit, openGallery: (Mahlzeit, String) -> Unit, modifier: Modifier = Modifier) {
     if (items.isEmpty()) {
         Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
             Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -387,7 +398,7 @@ private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundati
             items(items, key = { item -> when (item) { is PlanItem.Month -> "month-${item.yearMonth}"; is PlanItem.Day -> "day-${item.date}" } }) { item ->
                 when (item) {
                     is PlanItem.Month -> Text(item.yearMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.GERMAN)), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
-                    is PlanItem.Day -> PlanDayRow(item.date, item.meals, edit)
+                    is PlanItem.Day -> PlanDayRow(item.date, item.meals, edit, openGallery)
                 }
             }
         }
@@ -395,7 +406,7 @@ private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundati
 }
 
 @Composable
-private fun PlanDayRow(date: LocalDate, meals: List<Mahlzeit>, edit: (Mahlzeit, LocalDate) -> Unit) {
+private fun PlanDayRow(date: LocalDate, meals: List<Mahlzeit>, edit: (Mahlzeit, LocalDate) -> Unit, openGallery: (Mahlzeit, String) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Column(Modifier.width(54.dp).padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.GERMAN), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -404,7 +415,7 @@ private fun PlanDayRow(date: LocalDate, meals: List<Mahlzeit>, edit: (Mahlzeit, 
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             meals.forEach { meal ->
                 meal.eintraege.firstOrNull { it.datum == date.toString() }?.let { occurrence ->
-                    WeekAgendaMealCard(meal, occurrence) { edit(meal, date) }
+                    WeekAgendaMealCard(meal, occurrence, { edit(meal, date) }) { imageUrl -> openGallery(meal, imageUrl) }
                 }
             }
         }
@@ -503,8 +514,9 @@ private fun MealCard(meal: Mahlzeit, click: () -> Unit, openGallery: () -> Unit)
 }
 
 @Composable
-private fun MealImageGallery(meal: Mahlzeit, dismiss: () -> Unit) {
-    val pagerState = rememberPagerState(pageCount = { meal.bilder.size })
+private fun MealImageGallery(meal: Mahlzeit, initialImageUrl: String? = null, dismiss: () -> Unit) {
+    val initialPage = meal.bilder.indexOfFirst { it.url == initialImageUrl }.coerceAtLeast(0)
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { meal.bilder.size })
     Dialog(
         onDismissRequest = dismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
