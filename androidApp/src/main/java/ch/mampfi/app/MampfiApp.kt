@@ -21,6 +21,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Clear
@@ -270,16 +271,31 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
                 dayContent = { day -> WeekCalendarCell(day.date, meals.count { day.date.toString() in it.termine }, day.date == selectedDate) { selectedWeekDate = day.date.toString() } },
             )
             Spacer(Modifier.height(12.dp))
-            WeekAgenda(
-                date = selectedDate,
-                meals = meals.filter { selectedDate.toString() in it.termine },
-                plan = { open(selectedDate) },
-                edit = { meal -> edit(meal, selectedDate) },
-                openGallery = { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl },
-                modifier = Modifier.weight(1f),
-            )
+            Box(Modifier.weight(1f)) {
+                WeekAgenda(
+                    date = selectedDate,
+                    meals = meals.filter { selectedDate.toString() in it.termine },
+                    edit = { meal -> edit(meal, selectedDate) },
+                    openGallery = { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                FloatingActionButton(
+                    onClick = { open(selectedDate) },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                ) {
+                    Icon(Icons.Outlined.Add, contentDescription = "Mahlzeit hinzufügen")
+                }
+            }
         } else {
-            PlanSchedule(planItems, planListState, open, edit, { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl }, Modifier.weight(1f))
+            Box(Modifier.weight(1f)) {
+                PlanSchedule(planItems, planListState, open, edit, { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl }, Modifier.fillMaxSize())
+                FloatingActionButton(
+                    onClick = { open(LocalDate.now()) },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                ) {
+                    Icon(Icons.Outlined.Add, contentDescription = "Mahlzeit hinzufügen")
+                }
+            }
         }
     }
     galleryMeal?.let { meal -> MealImageGallery(meal, galleryImageUrl) { galleryMeal = null; galleryImageUrl = null } }
@@ -316,7 +332,7 @@ private fun WeekCalendarCell(date: LocalDate, mealCount: Int, selected: Boolean,
 }
 
 @Composable
-private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, plan: () -> Unit, edit: (Mahlzeit) -> Unit, openGallery: (Mahlzeit, String) -> Unit, modifier: Modifier = Modifier) {
+private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, edit: (Mahlzeit) -> Unit, openGallery: (Mahlzeit, String) -> Unit, modifier: Modifier = Modifier) {
     Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
             Text(date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM", Locale.GERMAN)), modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
@@ -331,7 +347,7 @@ private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, plan: () -> Unit,
                     Text("Plane eine Mahlzeit für diesen Tag.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                 }
             } else {
-                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 72.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(meals, key = { it.id }) { meal ->
                         meal.eintraege.firstOrNull { it.datum == date.toString() }?.let { occurrence ->
                             WeekAgendaMealCard(meal, occurrence, { edit(meal) }) { imageUrl -> openGallery(meal, imageUrl) }
@@ -339,7 +355,6 @@ private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, plan: () -> Unit,
                     }
                 }
             }
-            Button(onClick = plan, modifier = Modifier.fillMaxWidth()) { Text("Mahlzeit planen") }
         }
     }
 }
