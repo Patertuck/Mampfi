@@ -7,6 +7,13 @@ import kotlin.test.assertTrue
 
 class ModelsTest {
     @Test
+    fun `idea flag is independent from dated entries`() {
+        assertFalse(Mahlzeit(name = "Ramen").istIdee)
+        assertTrue(Mahlzeit(name = "Ramen", istIdee = true).istIdee)
+        assertTrue(Mahlzeit(name = "Ramen", istIdee = true, eintraege = listOf(MahlzeitEintrag(datum = "2026-09-23"))).istIdee)
+    }
+
+    @Test
     fun `vegetarian filter includes vegan meals but vegan filter stays exact`() {
         val vegan = Mahlzeit(name = "Vegan", tags = listOf(Tag.VEGAN.name))
         val vegetarian = Mahlzeit(name = "Vegetarisch", tags = listOf(Tag.VEGETARISCH.name))

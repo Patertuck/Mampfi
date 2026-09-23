@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 import java.sql.DriverManager
 
 data class DeletedEntry(val imageUrls: List<String>)
+enum class DeleteIdeaResult { DELETED, NOT_FOUND, HAS_ENTRIES }
 
 class MealRepository(private val database: String) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -22,18 +23,18 @@ class MealRepository(private val database: String) {
     }
 
     @Synchronized fun all(): List<Mahlzeit> = connection.prepareStatement(
-        "SELECT id, name, rezept_link, tags FROM mahlzeiten ORDER BY name COLLATE NOCASE",
+        "SELECT id, name, rezept_link, tags, ist_idee FROM mahlzeiten ORDER BY name COLLATE NOCASE",
     ).use { statement -> statement.executeQuery().use { rows -> buildList { while (rows.next()) add(rows.meal()) } } }
 
     @Synchronized fun find(id: String): Mahlzeit? = connection.prepareStatement(
-        "SELECT id, name, rezept_link, tags FROM mahlzeiten WHERE id = ?",
+        "SELECT id, name, rezept_link, tags, ist_idee FROM mahlzeiten WHERE id = ?",
     ).use { statement ->
         statement.setString(1, id)
         statement.executeQuery().use { rows -> if (rows.next()) rows.meal() else null }
     }
 
     @Synchronized fun insert(meal: Mahlzeit) = transaction {
-        connection.prepareStatement("INSERT INTO mahlzeiten (id, name, rezept_link, tags) VALUES (?, ?, ?, ?)").use { statement ->
+        connection.prepareStatement("INSERT INTO mahlzeiten (id, name, rezept_link, tags, ist_idee) VALUES (?, ?, ?, ?, ?)").use { statement ->
             bindMeal(statement, meal)
             statement.executeUpdate()
         }
@@ -41,13 +42,27 @@ class MealRepository(private val database: String) {
     }
 
     @Synchronized fun updateMeal(meal: Mahlzeit): Boolean = connection.prepareStatement(
-        "UPDATE mahlzeiten SET name = ?, rezept_link = ?, tags = ? WHERE id = ?",
+        "UPDATE mahlzeiten SET name = ?, rezept_link = ?, tags = ?, ist_idee = ? WHERE id = ?",
     ).use { statement ->
         statement.setString(1, meal.name)
         statement.setString(2, meal.rezeptLink)
         statement.setString(3, json.encodeToString(meal.tags))
-        statement.setString(4, meal.id)
+        statement.setBoolean(4, meal.istIdee)
+        statement.setString(5, meal.id)
         statement.executeUpdate() > 0
+    }
+
+    @Synchronized fun deleteIdea(mealId: String): DeleteIdeaResult = transaction {
+        val entryCount = connection.prepareStatement("SELECT COUNT(*) FROM mahlzeit_eintraege WHERE mahlzeit_id = ?").use { statement ->
+            statement.setString(1, mealId)
+            statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
+        }
+        if (entryCount > 0) return@transaction DeleteIdeaResult.HAS_ENTRIES
+        val deleted = connection.prepareStatement("DELETE FROM mahlzeiten WHERE id = ?").use { statement ->
+            statement.setString(1, mealId)
+            statement.executeUpdate()
+        }
+        if (deleted > 0) DeleteIdeaResult.DELETED else DeleteIdeaResult.NOT_FOUND
     }
 
     @Synchronized fun insertEntry(mealId: String, entry: MahlzeitEintrag): Boolean {
@@ -104,7 +119,7 @@ class MealRepository(private val database: String) {
 
     private fun java.sql.ResultSet.meal(): Mahlzeit {
         val mealId = getString("id")
-        return Mahlzeit(mealId, getString("name"), getString("rezept_link"), json.decodeFromString(getString("tags")), entries(mealId))
+        return Mahlzeit(mealId, getString("name"), getString("rezept_link"), json.decodeFromString(getString("tags")), getBoolean("ist_idee"), entries(mealId))
     }
 
     private fun entries(mealId: String): List<MahlzeitEintrag> = connection.prepareStatement(
@@ -149,6 +164,7 @@ class MealRepository(private val database: String) {
         statement.setString(2, meal.name)
         statement.setString(3, meal.rezeptLink)
         statement.setString(4, json.encodeToString(meal.tags))
+        statement.setBoolean(5, meal.istIdee)
     }
 
     private fun initializeSchema() {
@@ -165,13 +181,14 @@ class MealRepository(private val database: String) {
         check(columns.containsAll(requiredColumns)) {
             "Unsupported mahlzeiten schema; expected columns $requiredColumns but found $columns"
         }
+        if ("ist_idee" !in columns) connection.createStatement().use { it.executeUpdate("ALTER TABLE mahlzeiten ADD COLUMN ist_idee INTEGER NOT NULL DEFAULT 0") }
         createSchema()
         setSchemaVersion()
     }
 
     private fun createSchema() {
         connection.createStatement().use { statement ->
-            statement.executeUpdate("CREATE TABLE IF NOT EXISTS mahlzeiten (id TEXT PRIMARY KEY, name TEXT NOT NULL, rezept_link TEXT, tags TEXT NOT NULL)")
+            statement.executeUpdate("CREATE TABLE IF NOT EXISTS mahlzeiten (id TEXT PRIMARY KEY, name TEXT NOT NULL, rezept_link TEXT, tags TEXT NOT NULL, ist_idee INTEGER NOT NULL DEFAULT 0)")
             statement.executeUpdate("CREATE TABLE IF NOT EXISTS mahlzeit_eintraege (id TEXT PRIMARY KEY, mahlzeit_id TEXT NOT NULL, datum TEXT NOT NULL, bewertung TEXT, FOREIGN KEY (mahlzeit_id) REFERENCES mahlzeiten(id) ON DELETE CASCADE, UNIQUE (mahlzeit_id, datum))")
             statement.executeUpdate("CREATE TABLE IF NOT EXISTS mahlzeit_bilder (id TEXT PRIMARY KEY, eintrag_id TEXT NOT NULL, url TEXT NOT NULL, FOREIGN KEY (eintrag_id) REFERENCES mahlzeit_eintraege(id) ON DELETE CASCADE)")
         }
@@ -181,7 +198,7 @@ class MealRepository(private val database: String) {
         statement.executeQuery("PRAGMA table_info($table)").use { rows -> buildSet { while (rows.next()) add(rows.getString("name")) } }
     }
 
-    private fun setSchemaVersion() { connection.createStatement().use { it.execute("PRAGMA user_version = 2") } }
+    private fun setSchemaVersion() { connection.createStatement().use { it.execute("PRAGMA user_version = 3") } }
 
     private fun <T> transaction(block: () -> T): T {
         val previousAutoCommit = connection.autoCommit

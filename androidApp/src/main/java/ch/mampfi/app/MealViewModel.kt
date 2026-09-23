@@ -36,6 +36,22 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
     fun createMeal(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null) = viewModelScope.launch {
         saveWithOptionalImage(repository.createMeal(meal, entry), meal.id, entry.id, image)
     }
+    fun saveIdea(meal: Mahlzeit, isNew: Boolean, onSuccess: () -> Unit) = viewModelScope.launch {
+        val result = if (isNew) repository.createIdea(meal) else repository.updateIdea(meal)
+        result
+            .onSuccess { _message.emit("Idee gespeichert."); onSuccess() }
+            .onFailure { _message.emit("Speichern fehlgeschlagen.") }
+    }
+    fun deleteIdea(mealId: String, onSuccess: () -> Unit) = viewModelScope.launch {
+        repository.deleteIdea(mealId)
+            .onSuccess { _message.emit("Idee gelöscht."); onSuccess() }
+            .onFailure { _message.emit("Löschen fehlgeschlagen.") }
+    }
+    fun setIdea(meal: Mahlzeit, isIdea: Boolean, onSuccess: () -> Unit = {}) = viewModelScope.launch {
+        repository.setIdea(meal, isIdea)
+            .onSuccess { _message.emit(if (isIdea) "Zu Ideen hinzugefügt." else "Aus Ideen entfernt."); onSuccess() }
+            .onFailure { _message.emit("Speichern fehlgeschlagen.") }
+    }
     fun createEntry(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null) = viewModelScope.launch {
         saveWithOptionalImage(repository.createEntry(meal, entry), meal.id, entry.id, image)
     }

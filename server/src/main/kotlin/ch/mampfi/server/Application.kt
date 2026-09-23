@@ -30,6 +30,7 @@ import java.util.UUID
 @Serializable data class Mahlzeit(
     val id: String = UUID.randomUUID().toString(), val name: String,
     val rezeptLink: String? = null, val tags: List<String> = emptyList(),
+    val istIdee: Boolean = false,
     val eintraege: List<MahlzeitEintrag> = emptyList(),
 )
 
@@ -64,7 +65,7 @@ fun Application.module(
             get("/{id}") { repository.find(call.parameters["id"]!!)?.let { call.respond(it) } ?: call.respond(HttpStatusCode.NotFound) }
             post {
                 val meal = call.receive<Mahlzeit>()
-                validate(meal, requireInitialEntry = true)?.let { call.respond(HttpStatusCode.BadRequest, it); return@post }
+                validateNewMeal(meal)?.let { call.respond(HttpStatusCode.BadRequest, it); return@post }
                 if (repository.find(meal.id) != null) call.respond(HttpStatusCode.Conflict) else try {
                     repository.insert(meal)
                     call.respond(HttpStatusCode.Created, repository.find(meal.id)!!)
@@ -77,6 +78,13 @@ fun Application.module(
                 val meal = call.receive<Mahlzeit>().copy(id = id)
                 validateShared(meal)?.let { call.respond(HttpStatusCode.BadRequest, it); return@put }
                 if (repository.updateMeal(meal)) call.respond(repository.find(id)!!) else call.respond(HttpStatusCode.NotFound)
+            }
+            delete("/{id}") {
+                when (repository.deleteIdea(call.parameters["id"]!!)) {
+                    DeleteIdeaResult.DELETED -> call.respond(HttpStatusCode.NoContent)
+                    DeleteIdeaResult.NOT_FOUND -> call.respond(HttpStatusCode.NotFound)
+                    DeleteIdeaResult.HAS_ENTRIES -> call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "Nur Ideen ohne Termine können gelöscht werden"))
+                }
             }
             post("/{id}/eintraege") {
                 val mealId = call.parameters["id"]!!
@@ -126,9 +134,10 @@ private fun validateShared(meal: Mahlzeit): Map<String, String>? = when {
     else -> null
 }
 
-private fun validate(meal: Mahlzeit, requireInitialEntry: Boolean): Map<String, String>? =
+private fun validateNewMeal(meal: Mahlzeit): Map<String, String>? =
     validateShared(meal) ?: when {
-        requireInitialEntry && meal.eintraege.size != 1 -> mapOf("fehler" to "Eine neue Mahlzeit braucht genau einen Eintrag")
+        meal.eintraege.isEmpty() && !meal.istIdee -> mapOf("fehler" to "Eine Mahlzeit ohne Termin muss als Idee markiert sein")
+        meal.eintraege.size > 1 -> mapOf("fehler" to "Eine neue Mahlzeit darf höchstens einen Eintrag haben")
         meal.eintraege.map { it.datum }.distinct().size != meal.eintraege.size -> mapOf("fehler" to "Termin darf nicht doppelt vorkommen")
         else -> meal.eintraege.firstNotNullOfOrNull(::validateEntry)
     }

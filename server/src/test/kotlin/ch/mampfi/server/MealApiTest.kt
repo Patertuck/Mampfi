@@ -83,12 +83,49 @@ class MealApiTest {
         assertEquals(HttpStatusCode.BadRequest, invalidRating.status)
         assertContains(invalidRating.bodyAsText(), "genau zwei Werte")
         assertEquals(HttpStatusCode.BadRequest, client.post("/api/mahlzeiten") {
-            contentType(ContentType.Application.Json); setBody("""{"name":"Pasta","eintraege":[]}""")
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Pasta","eintraege":[{"datum":"2026-09-01"},{"datum":"2026-09-02"}]}""")
         }.status)
     }
 
     @Test
-    fun `fresh v2 schema is initialized and can be reopened`() {
+    fun `ideas can be created updated and deleted but scheduled meals cannot use idea deletion`() = testApplication {
+        val dataDirectory = createTempDirectory("mampfi-idea-test-").toFile()
+        application { module(File(dataDirectory, "mampfi.db").path, File(dataDirectory, "uploads")) }
+
+        val created = client.post("/api/mahlzeiten") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"id":"idea","name":"Ramen","tags":["VEGAN"],"istIdee":true,"eintraege":[]}""")
+        }
+        assertEquals(HttpStatusCode.Created, created.status)
+        assertTrue(Json.decodeFromString<Mahlzeit>(created.bodyAsText()).let { it.istIdee && it.eintraege.isEmpty() })
+
+        val updated = client.put("/api/mahlzeiten/idea") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Spicy ramen","rezeptLink":"https://example.test/ramen","tags":["VEGAN"],"istIdee":true}""")
+        }
+        assertEquals(HttpStatusCode.OK, updated.status)
+        assertContains(updated.bodyAsText(), "Spicy ramen")
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/mahlzeiten/idea").status)
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/mahlzeiten/idea").status)
+        assertEquals(HttpStatusCode.NotFound, client.delete("/api/mahlzeiten/idea").status)
+
+        assertEquals(HttpStatusCode.Created, client.post("/api/mahlzeiten") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"id":"planned","name":"Fondue","eintraege":[{"datum":"2026-12-01"}]}""")
+        }.status)
+        val markedIdea = client.put("/api/mahlzeiten/planned") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Fondue","istIdee":true}""")
+        }
+        assertEquals(HttpStatusCode.OK, markedIdea.status)
+        assertTrue(Json.decodeFromString<Mahlzeit>(markedIdea.bodyAsText()).let { it.istIdee && it.eintraege.size == 1 })
+        assertEquals(HttpStatusCode.Conflict, client.delete("/api/mahlzeiten/planned").status)
+        assertEquals(HttpStatusCode.OK, client.get("/api/mahlzeiten/planned").status)
+    }
+
+    @Test
+    fun `fresh v3 schema is initialized and can be reopened`() {
         val dataDirectory = createTempDirectory("mampfi-schema-test-").toFile()
         val database = File(dataDirectory, "mampfi.db")
         val repository = MealRepository(database.path)
@@ -98,11 +135,36 @@ class MealApiTest {
         assertEquals("Mac and cheese", reopened.find("mac")?.name)
         DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
             connection.createStatement().use { statement ->
-                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(2, result.getInt(1)) }
+                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(3, result.getInt(1)) }
+                statement.executeQuery("PRAGMA table_info(mahlzeiten)").use { rows ->
+                    val columns = buildSet { while (rows.next()) add(rows.getString("name")) }
+                    assertTrue("ist_idee" in columns)
+                }
                 statement.executeQuery("SELECT name FROM sqlite_master WHERE type = 'table'").use { rows ->
                     val tables = buildSet { while (rows.next()) add(rows.getString("name")) }
                     assertTrue(tables.containsAll(setOf("mahlzeiten", "mahlzeit_eintraege", "mahlzeit_bilder")))
                 }
+            }
+        }
+    }
+
+    @Test
+    fun `v2 meals migrate with idea flag disabled`() {
+        val dataDirectory = createTempDirectory("mampfi-v2-schema-test-").toFile()
+        val database = File(dataDirectory, "mampfi.db")
+        DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeUpdate("CREATE TABLE mahlzeiten (id TEXT PRIMARY KEY, name TEXT NOT NULL, rezept_link TEXT, tags TEXT NOT NULL)")
+                statement.executeUpdate("INSERT INTO mahlzeiten VALUES ('pasta', 'Pasta', NULL, '[]')")
+                statement.executeUpdate("PRAGMA user_version = 2")
+            }
+        }
+
+        val repository = MealRepository(database.path)
+        assertFalse(repository.find("pasta")!!.istIdee)
+        DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(3, result.getInt(1)) }
             }
         }
     }

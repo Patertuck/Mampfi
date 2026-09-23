@@ -13,11 +13,27 @@ class MealRepository(private val api: MealApi, private val dao: MealDao, private
     val meals: Flow<List<Mahlzeit>> = dao.observeAll().map { rows -> rows.map { json.decodeFromString(Mahlzeit.serializer(), it.json).withResolvedImageUrls() } }
     suspend fun refresh(): Result<Unit> = runCatching { cache(api.all()) }
     suspend fun createMeal(meal: Mahlzeit, entry: MahlzeitEintrag): Result<Unit> = runCatching {
-        api.create(meal.copy(eintraege = listOf(entry)).withRelativeImageUrls())
+        api.create(meal.copy(istIdee = false, eintraege = listOf(entry)).withRelativeImageUrls())
+        refresh().getOrThrow()
+    }
+    suspend fun createIdea(meal: Mahlzeit): Result<Unit> = runCatching {
+        api.create(meal.copy(istIdee = true, eintraege = emptyList()).withRelativeImageUrls())
+        refresh().getOrThrow()
+    }
+    suspend fun updateIdea(meal: Mahlzeit): Result<Unit> = runCatching {
+        api.update(meal.id, meal.copy(istIdee = true).withRelativeImageUrls())
+        refresh().getOrThrow()
+    }
+    suspend fun setIdea(meal: Mahlzeit, isIdea: Boolean): Result<Unit> = runCatching {
+        api.update(meal.id, meal.copy(istIdee = isIdea).withRelativeImageUrls())
+        refresh().getOrThrow()
+    }
+    suspend fun deleteIdea(mealId: String): Result<Unit> = runCatching {
+        api.deleteIdea(mealId)
         refresh().getOrThrow()
     }
     suspend fun createEntry(meal: Mahlzeit, entry: MahlzeitEintrag): Result<Unit> = runCatching {
-        api.update(meal.id, meal.withRelativeImageUrls())
+        api.update(meal.id, meal.copy(istIdee = false).withRelativeImageUrls())
         api.createEntry(meal.id, entry.withRelativeImageUrls())
         refresh().getOrThrow()
     }

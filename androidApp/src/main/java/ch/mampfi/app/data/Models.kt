@@ -21,7 +21,7 @@ enum class Tag(val label: String) { VEGETARISCH("Vegetarisch"), VEGAN("Vegan"), 
 data class DatiertesMahlzeitBild(val url: String, val datum: String)
 @Serializable data class Mahlzeit(
     val id: String = UUID.randomUUID().toString(), val name: String, val rezeptLink: String? = null,
-    val tags: List<String> = emptyList(), val eintraege: List<MahlzeitEintrag> = emptyList(),
+    val tags: List<String> = emptyList(), val istIdee: Boolean = false, val eintraege: List<MahlzeitEintrag> = emptyList(),
 ) {
     val termine get() = eintraege.map { it.datum }
     val bilder get() = eintraege.flatMap { entry -> entry.bilder.map { DatiertesMahlzeitBild(it.url, entry.datum) } }
