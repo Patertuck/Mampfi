@@ -32,6 +32,21 @@ class PasteSanitizerTest {
     }
 
     @Test
+    fun `normalizes supported recipe web links`() {
+        assertEquals("https://example.test/recipe", normalizedWebUrlOrNull(" https://example.test/recipe "))
+        assertEquals("http://example.test/recipe", normalizedWebUrlOrNull("http://example.test/recipe"))
+        assertEquals("https://www.example.test/recipe", normalizedWebUrlOrNull("www.example.test/recipe"))
+    }
+
+    @Test
+    fun `rejects recipe values that are not web links`() {
+        assertNull(normalizedWebUrlOrNull("Grandma's cookbook, page 12"))
+        assertNull(normalizedWebUrlOrNull("example.test/recipe"))
+        assertNull(normalizedWebUrlOrNull("https://"))
+        assertNull(normalizedWebUrlOrNull("ftp://example.test/recipe"))
+    }
+
+    @Test
     fun `normalizes a multiline pasted meal name`() {
         assertEquals("Creamy Mac and Cheese", normalizePastedMealName("  Creamy Mac\nand   Cheese  "))
     }

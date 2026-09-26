@@ -386,20 +386,42 @@ private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, clic
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
 ) {
     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        occurrence.letztesBild()?.let { imageUrl ->
-            AsyncImage(
-                imageUrl,
-                "Bild von ${meal.name} ansehen",
-                Modifier.size(64.dp).clip(MaterialTheme.shapes.small).clickable { openGallery(imageUrl) },
-                contentScale = ContentScale.Crop,
-            )
+        val imageUrl = occurrence.letztesBild()
+        Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+            if (imageUrl != null) {
+                AsyncImage(
+                    imageUrl,
+                    "Bild von ${meal.name} ansehen",
+                    Modifier.fillMaxSize().clip(MaterialTheme.shapes.small).clickable { openGallery(imageUrl) },
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.small) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
         }
-        Column(Modifier.padding(start = if (occurrence.letztesBild() == null) 0.dp else 12.dp).weight(1f)) {
-            Text(meal.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Column(Modifier.padding(start = 12.dp).weight(1f)) {
+            Text(meal.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             meal.tags.filterNot { it == Tag.VEGETARISCH.name && Tag.VEGAN.name in meal.tags }.takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · ") { tag -> Tag.entries.find { it.name == tag }?.label ?: tag }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-        occurrence.durchschnitt()?.let { Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) { Text(String.format(Locale.GERMANY, "%.1f", it), Modifier.padding(horizontal = 8.dp, vertical = 5.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer) } }
-        DietMarker(meal, Modifier.padding(start = 8.dp))
+        val rating = occurrence.durchschnitt()
+        Box(Modifier.width(52.dp), contentAlignment = Alignment.Center) {
+            Surface(
+                color = if (rating == null) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.secondaryContainer,
+                shape = MaterialTheme.shapes.small,
+            ) {
+                Text(
+                    rating?.let { String.format(Locale.GERMANY, "%.1f", it) } ?: "–",
+                    Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (rating == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+        }
+        Box(Modifier.width(36.dp), contentAlignment = Alignment.Center) { DietMarker(meal) }
     }
 }
 
@@ -719,6 +741,7 @@ private fun DietMarker(meal: Mahlzeit, modifier: Modifier = Modifier) {
 private fun RecipeLinkField(link: String, editingExistingMeal: Boolean, update: (String) -> Unit) {
     var editing by remember(editingExistingMeal) { mutableStateOf(!editingExistingMeal) }
     val uriHandler = LocalUriHandler.current
+    val webUrl = normalizedWebUrlOrNull(link)
     if (editing) {
         OutlinedTextField(
             value = link,
@@ -745,17 +768,16 @@ private fun RecipeLinkField(link: String, editingExistingMeal: Boolean, update: 
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .clickable(enabled = link.isNotBlank()) {
-                            val url = link.trim().let { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" }
-                            runCatching { uriHandler.openUri(url) }
+                        .clickable(enabled = webUrl != null) {
+                            webUrl?.let { runCatching { uriHandler.openUri(it) } }
                         }
                         .padding(start = 16.dp, top = 9.dp, bottom = 9.dp),
                 ) {
                     Text("Rezept-Link", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     Text(
                         text = link.ifBlank { "Kein Rezept-Link" },
-                        color = if (link.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-                        textDecoration = if (link.isBlank()) null else TextDecoration.Underline,
+                        color = if (webUrl == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                        textDecoration = if (webUrl == null) null else TextDecoration.Underline,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
