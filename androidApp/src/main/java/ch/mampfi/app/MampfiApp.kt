@@ -405,7 +405,7 @@ private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, clic
         }
         Column(Modifier.padding(start = 12.dp).weight(1f)) {
             Text(meal.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            meal.tags.filterNot { it == Tag.VEGETARISCH.name && Tag.VEGAN.name in meal.tags }.takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · ") { tag -> Tag.entries.find { it.name == tag }?.label ?: tag }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            meal.tags.filterNot { it == Tag.VEGETARISCH.name || it == Tag.VEGAN.name }.takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · ") { tag -> Tag.entries.find { it.name == tag }?.label ?: tag }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         val rating = occurrence.durchschnitt()
         Box(Modifier.width(52.dp), contentAlignment = Alignment.Center) {
