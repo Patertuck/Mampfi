@@ -125,7 +125,7 @@ class MealApiTest {
     }
 
     @Test
-    fun `fresh v3 schema is initialized and can be reopened`() {
+    fun `fresh v4 schema is initialized and can be reopened`() {
         val dataDirectory = createTempDirectory("mampfi-schema-test-").toFile()
         val database = File(dataDirectory, "mampfi.db")
         val repository = MealRepository(database.path)
@@ -135,14 +135,14 @@ class MealApiTest {
         assertEquals("Mac and cheese", reopened.find("mac")?.name)
         DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
             connection.createStatement().use { statement ->
-                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(3, result.getInt(1)) }
+                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(4, result.getInt(1)) }
                 statement.executeQuery("PRAGMA table_info(mahlzeiten)").use { rows ->
                     val columns = buildSet { while (rows.next()) add(rows.getString("name")) }
                     assertTrue("ist_idee" in columns)
                 }
                 statement.executeQuery("SELECT name FROM sqlite_master WHERE type = 'table'").use { rows ->
                     val tables = buildSet { while (rows.next()) add(rows.getString("name")) }
-                    assertTrue(tables.containsAll(setOf("mahlzeiten", "mahlzeit_eintraege", "mahlzeit_bilder")))
+                    assertTrue(tables.containsAll(setOf("mahlzeiten", "mahlzeit_eintraege", "mahlzeit_bilder", "auswaerts_eintraege")))
                 }
             }
         }
@@ -164,9 +164,47 @@ class MealApiTest {
         assertFalse(repository.find("pasta")!!.istIdee)
         DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
             connection.createStatement().use { statement ->
-                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(3, result.getInt(1)) }
+                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(4, result.getInt(1)) }
             }
         }
+    }
+
+    @Test
+    fun `away entry blocks meals and can atomically replace planned occurrences`() = testApplication {
+        val dataDirectory = createTempDirectory("mampfi-away-test-").toFile()
+        application { module(File(dataDirectory, "mampfi.db").path, File(dataDirectory, "uploads")) }
+
+        val away = """{"id":"away","datum":"2026-10-02","notiz":"Bei Anna"}"""
+        assertEquals(HttpStatusCode.Created, client.post("/api/auswaerts") {
+            contentType(ContentType.Application.Json); setBody(away)
+        }.status)
+        assertContains(client.get("/api/auswaerts").bodyAsText(), "Bei Anna")
+        assertEquals(HttpStatusCode.Conflict, client.post("/api/mahlzeiten") {
+            contentType(ContentType.Application.Json); setBody("""{"id":"blocked","name":"Pasta","eintraege":[{"datum":"2026-10-02"}]}""")
+        }.status)
+
+        assertEquals(HttpStatusCode.Created, client.post("/api/mahlzeiten") {
+            contentType(ContentType.Application.Json); setBody("""{"id":"planned","name":"Curry","eintraege":[{"datum":"2026-10-03"}]}""")
+        }.status)
+        assertEquals(HttpStatusCode.Created, client.post("/api/mahlzeiten/planned/eintraege") {
+            contentType(ContentType.Application.Json); setBody("""{"datum":"2026-10-04"}""")
+        }.status)
+        val replacement = """{"id":"replacement","datum":"2026-10-03"}"""
+        assertEquals(HttpStatusCode.Conflict, client.post("/api/auswaerts") {
+            contentType(ContentType.Application.Json); setBody(replacement)
+        }.status)
+        assertEquals(HttpStatusCode.Created, client.post("/api/auswaerts?ersetzen=true") {
+            contentType(ContentType.Application.Json); setBody(replacement)
+        }.status)
+        val remainingMeal = client.get("/api/mahlzeiten/planned")
+        assertEquals(HttpStatusCode.OK, remainingMeal.status)
+        assertFalse(remainingMeal.bodyAsText().contains("2026-10-03"))
+        assertContains(remainingMeal.bodyAsText(), "2026-10-04")
+
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/auswaerts/away").status)
+        assertEquals(HttpStatusCode.Created, client.post("/api/mahlzeiten") {
+            contentType(ContentType.Application.Json); setBody("""{"id":"unblocked","name":"Pasta","eintraege":[{"datum":"2026-10-02"}]}""")
+        }.status)
     }
 
     @Test

@@ -11,6 +11,9 @@ import java.util.UUID
 enum class Tag(val label: String) { VEGETARISCH("Vegetarisch"), VEGAN("Vegan"), DESSERT("Dessert"), AUFWANDIG("Aufwändig") }
 @Serializable data class MahlzeitBild(val id: String = UUID.randomUUID().toString(), val url: String)
 @Serializable data class MahlzeitBewertung(val werte: List<Double>)
+@Serializable data class AuswaertsEintrag(
+    val id: String = UUID.randomUUID().toString(), val datum: String, val notiz: String? = null,
+)
 @Serializable data class MahlzeitEintrag(
     val id: String = UUID.randomUUID().toString(), val datum: String,
     val bilder: List<MahlzeitBild> = emptyList(), val bewertung: MahlzeitBewertung? = null,
@@ -47,6 +50,9 @@ internal fun Set<Tag>.toggleMealTag(tag: Tag): Set<Tag> {
 
 @Entity(tableName = "mahlzeiten")
 data class MahlzeitEntity(@PrimaryKey val id: String, val json: String)
+
+@Entity(tableName = "auswaerts_eintraege")
+data class AuswaertsEintragEntity(@PrimaryKey val id: String, val datum: String, val notiz: String?)
 
 class MealConverters {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }

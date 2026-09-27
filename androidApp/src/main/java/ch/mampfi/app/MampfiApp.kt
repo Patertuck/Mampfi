@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package ch.mampfi.app
 
@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.outlined.Settings
@@ -141,8 +142,12 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
         NavHost(nav, "kalender", Modifier.padding(padding)) {
             composable("kalender") { CalendarScreen(
                 meals = vm.meals.collectAsState().value,
+                awayEntries = vm.awayEntries.collectAsState().value,
                 open = { nav.navigate("bearbeiten/$it") },
                 edit = { meal, date -> meal.eintraege.firstOrNull { it.datum == date.toString() }?.let { occurrence -> nav.navigate("bearbeiten/$date?meal=${meal.id}&entry=${occurrence.id}") } },
+                createAway = vm::createAwayEntry,
+                updateAway = vm::updateAwayEntry,
+                deleteAway = vm::deleteAwayEntry,
             ) }
             composable("ideen") { IdeasScreen(
                 ideas = vm.meals.collectAsState().value.filter { it.istIdee },
@@ -164,7 +169,7 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
                 schedule = { mealId -> nav.navigate("bearbeiten/${LocalDate.now()}?meal=$mealId") { popUpTo("ideen") } },
                 done = { nav.popBackStack() },
             ) }
-            composable("bearbeiten/{date}?meal={meal}&entry={entry}") { entry -> EditScreen(vm, LocalDate.parse(entry.arguments!!.getString("date")!!), entry.arguments?.getString("meal"), entry.arguments?.getString("entry"), appSettings.firstRaterName, appSettings.secondRaterName) { nav.popBackStack() } }
+            composable("bearbeiten/{date}?meal={meal}&entry={entry}") { entry -> EditScreen(vm, LocalDate.parse(entry.arguments!!.getString("date")!!), entry.arguments?.getString("meal"), entry.arguments?.getString("entry"), appSettings.firstRaterName, appSettings.secondRaterName, vm.awayEntries.collectAsState().value) { nav.popBackStack() } }
         }
     }
     availableUpdate?.let { update ->
@@ -198,7 +203,13 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
 }
 
 @Composable
-private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edit: (Mahlzeit, LocalDate) -> Unit) {
+private fun CalendarScreen(
+    meals: List<Mahlzeit>, awayEntries: List<AuswaertsEintrag>, open: (LocalDate) -> Unit,
+    edit: (Mahlzeit, LocalDate) -> Unit,
+    createAway: (AuswaertsEintrag, Boolean, () -> Unit) -> Unit,
+    updateAway: (AuswaertsEintrag, Boolean, () -> Unit) -> Unit,
+    deleteAway: (String, () -> Unit) -> Unit,
+) {
     val currentMonth = remember { YearMonth.now() }
     val calendarStartDate = remember(currentMonth) { currentMonth.minusMonths(24).atDay(1) }
     val calendarEndDate = remember(currentMonth) { currentMonth.plusMonths(24).atEndOfMonth() }
@@ -214,6 +225,9 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
     var planInitialised by rememberSaveable { mutableStateOf(false) }
     var galleryMeal by remember { mutableStateOf<Mahlzeit?>(null) }
     var galleryImageUrl by remember { mutableStateOf<String?>(null) }
+    var actionDate by remember { mutableStateOf<LocalDate?>(null) }
+    var editingAway by remember { mutableStateOf<AuswaertsEintrag?>(null) }
+    var creatingAway by remember { mutableStateOf(false) }
     val planListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val swipeThreshold = with(LocalDensity.current) { 64.dp.toPx() }
@@ -225,7 +239,7 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
             }
     }
     val selectedDate = LocalDate.parse(selectedWeekDate)
-    val planItems = remember(meals) { scheduledPlanItems(meals) }
+    val planItems = remember(meals, awayEntries) { scheduledPlanItems(meals, awayEntries) }
     val firstFuturePlanIndex = if (planItems.isEmpty()) {
         0
     } else {
@@ -289,37 +303,62 @@ private fun CalendarScreen(meals: List<Mahlzeit>, open: (LocalDate) -> Unit, edi
                 state = weekState,
                 userScrollEnabled = false,
                 weekHeader = { week -> CalendarWeekHeader(week.days.first().date, week.days.last().date) },
-                dayContent = { day -> WeekCalendarCell(day.date, meals.count { day.date.toString() in it.termine }, day.date == selectedDate) { selectedWeekDate = day.date.toString() } },
+                dayContent = { day -> WeekCalendarCell(day.date, meals.count { day.date.toString() in it.termine }, awayEntries.any { it.datum == day.date.toString() }, day.date == selectedDate) { selectedWeekDate = day.date.toString() } },
             )
             Spacer(Modifier.height(12.dp))
             Box(Modifier.weight(1f)) {
                 WeekAgenda(
                     date = selectedDate,
                     meals = meals.filter { selectedDate.toString() in it.termine },
+                    awayEntry = awayEntries.firstOrNull { it.datum == selectedDate.toString() },
                     edit = { meal -> edit(meal, selectedDate) },
+                    editAway = { editingAway = it; creatingAway = false },
                     openGallery = { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl },
                     modifier = Modifier.fillMaxSize(),
                 )
-                FloatingActionButton(
-                    onClick = { open(selectedDate) },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                ) {
-                    Icon(Icons.Outlined.Add, contentDescription = "Mahlzeit hinzufügen")
-                }
+                if (awayEntries.none { it.datum == selectedDate.toString() }) FloatingActionButton(
+                    onClick = { actionDate = selectedDate }, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                ) { Icon(Icons.Outlined.Add, contentDescription = "Eintrag hinzufügen") }
             }
         } else {
             Box(Modifier.weight(1f)) {
-                PlanSchedule(planItems, planListState, open, edit, { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl }, Modifier.fillMaxSize())
-                FloatingActionButton(
-                    onClick = { open(LocalDate.now()) },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                ) {
-                    Icon(Icons.Outlined.Add, contentDescription = "Mahlzeit hinzufügen")
-                }
+                PlanSchedule(planItems, planListState, edit, { editingAway = it; creatingAway = false }, { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl }, Modifier.fillMaxSize())
+                if (awayEntries.none { it.datum == LocalDate.now().toString() }) FloatingActionButton(
+                    onClick = { actionDate = LocalDate.now() }, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                ) { Icon(Icons.Outlined.Add, contentDescription = "Eintrag hinzufügen") }
             }
         }
     }
     galleryMeal?.let { meal -> MealImageGallery(meal, galleryImageUrl) { galleryMeal = null; galleryImageUrl = null } }
+    actionDate?.let { date ->
+        ModalBottomSheet(onDismissRequest = { actionDate = null }) {
+            Text("Was möchtet ihr planen?", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            ListItem(
+                headlineContent = { Text("Mahlzeit planen") }, leadingContent = { Icon(Icons.Outlined.Add, null) },
+                modifier = Modifier.clickable { actionDate = null; open(date) },
+            )
+            ListItem(
+                headlineContent = { Text("Auswärts essen") },
+                leadingContent = { Icon(Icons.Outlined.Restaurant, null) },
+                modifier = Modifier.clickable { actionDate = null; editingAway = AuswaertsEintrag(datum = date.toString()); creatingAway = true },
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+    editingAway?.let { entry ->
+        AwayEntryDialog(
+            entry = entry,
+            isNew = creatingAway,
+            occupiedMealDates = meals.flatMap { it.termine }.toSet(),
+            blockedDates = awayEntries.filterNot { it.id == entry.id }.mapNotNull { runCatching { LocalDate.parse(it.datum) }.getOrNull() }.toSet(),
+            dismiss = { editingAway = null },
+            save = { updated, replace ->
+                val done = { editingAway = null }
+                if (creatingAway) createAway(updated, replace, done) else updateAway(updated, replace, done)
+            },
+            delete = if (creatingAway) null else {{ deleteAway(entry.id) { editingAway = null } }},
+        )
+    }
 }
 
 @Composable
@@ -332,7 +371,7 @@ private fun CalendarWeekHeader(start: LocalDate, end: LocalDate) {
 }
 
 @Composable
-private fun WeekCalendarCell(date: LocalDate, mealCount: Int, selected: Boolean, select: () -> Unit) {
+private fun WeekCalendarCell(date: LocalDate, mealCount: Int, blocked: Boolean, selected: Boolean, select: () -> Unit) {
     val today = date == LocalDate.now()
     Surface(
         modifier = Modifier.fillMaxWidth().height(82.dp).padding(horizontal = 2.dp, vertical = 3.dp).clip(MaterialTheme.shapes.medium).clickable(onClick = select),
@@ -343,7 +382,9 @@ private fun WeekCalendarCell(date: LocalDate, mealCount: Int, selected: Boolean,
         Column(Modifier.padding(vertical = 7.dp, horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.GERMAN), style = MaterialTheme.typography.labelSmall, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
             Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            if (mealCount > 0) {
+            if (blocked) {
+                Icon(Icons.Outlined.Restaurant, "Auswärts essen", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.secondary)
+            } else if (mealCount > 0) {
                 Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.extraSmall) {
                     Text(mealCount.toString(), Modifier.padding(horizontal = 6.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
@@ -353,14 +394,16 @@ private fun WeekCalendarCell(date: LocalDate, mealCount: Int, selected: Boolean,
 }
 
 @Composable
-private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, edit: (Mahlzeit) -> Unit, openGallery: (Mahlzeit, String) -> Unit, modifier: Modifier = Modifier) {
+private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, awayEntry: AuswaertsEintrag?, edit: (Mahlzeit) -> Unit, editAway: (AuswaertsEintrag) -> Unit, openGallery: (Mahlzeit, String) -> Unit, modifier: Modifier = Modifier) {
     Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
             Text(date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM", Locale.GERMAN)), modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             Spacer(Modifier.height(4.dp))
-            Text(if (meals.isEmpty()) "Noch nichts geplant" else "${meals.size} ${if (meals.size == 1) "Mahlzeit" else "Mahlzeiten"} geplant", modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            Text(if (awayEntry != null) "Auswärts essen" else if (meals.isEmpty()) "Noch nichts geplant" else "${meals.size} ${if (meals.size == 1) "Mahlzeit" else "Mahlzeiten"} geplant", modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
-            if (meals.isEmpty()) {
+            if (awayEntry != null) {
+                AwayEntryCard(awayEntry) { editAway(awayEntry) }
+            } else if (meals.isEmpty()) {
                 Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(12.dp))
@@ -425,22 +468,100 @@ private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, clic
     }
 }
 
-private sealed interface PlanItem {
-    data class Month(val yearMonth: YearMonth) : PlanItem
-    data class Day(val date: LocalDate, val meals: List<Mahlzeit>) : PlanItem
-}
-
-private fun scheduledPlanItems(meals: List<Mahlzeit>): List<PlanItem> {
-    val mealsByDate = meals.flatMap { meal ->
-        meal.termine.mapNotNull { date -> runCatching { LocalDate.parse(date) }.getOrNull()?.let { it to meal } }
-    }.groupBy({ it.first }, { it.second })
-    return mealsByDate.entries.groupBy { YearMonth.from(it.key) }.toSortedMap().flatMap { (month, days) ->
-        listOf(PlanItem.Month(month)) + days.sortedBy { it.key }.map { (date, scheduledMeals) -> PlanItem.Day(date, scheduledMeals) }
+@Composable
+private fun AwayEntryCard(entry: AuswaertsEintrag, click: () -> Unit) = Card(
+    modifier = Modifier.fillMaxWidth().clickable(onClick = click),
+    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+) {
+    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.Restaurant, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+        Column(Modifier.padding(start = 12.dp).weight(1f)) {
+            Text("Auswärts essen", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            entry.notiz?.let { Text(it, color = MaterialTheme.colorScheme.onSecondaryContainer) }
+        }
+        Icon(Icons.Outlined.Edit, contentDescription = "Auswärts-Eintrag bearbeiten")
     }
 }
 
 @Composable
-private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundation.lazy.LazyListState, open: (LocalDate) -> Unit, edit: (Mahlzeit, LocalDate) -> Unit, openGallery: (Mahlzeit, String) -> Unit, modifier: Modifier = Modifier) {
+private fun AwayEntryDialog(
+    entry: AuswaertsEintrag,
+    isNew: Boolean,
+    occupiedMealDates: Set<String>,
+    blockedDates: Set<LocalDate>,
+    dismiss: () -> Unit,
+    save: (AuswaertsEintrag, Boolean) -> Unit,
+    delete: (() -> Unit)?,
+) {
+    var selectedDateEpochDay by rememberSaveable(entry.id) { mutableLongStateOf(LocalDate.parse(entry.datum).toEpochDay()) }
+    var note by rememberSaveable(entry.id) { mutableStateOf(entry.notiz.orEmpty()) }
+    var confirmReplace by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val selectedDate = LocalDate.ofEpochDay(selectedDateEpochDay)
+    AlertDialog(
+        onDismissRequest = dismiss,
+        icon = { Icon(Icons.Outlined.Restaurant, null) },
+        title = { Text(if (isNew) "Auswärts essen" else "Auswärts-Eintrag bearbeiten") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                MealDateSelector(selectedDate, blockedDates) { selectedDateEpochDay = it.toEpochDay() }
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Notiz (optional)") },
+                    placeholder = { Text("z. B. Restaurant oder bei Anna") },
+                    singleLine = true,
+                )
+                if (delete != null) TextButton(
+                    onClick = { confirmDelete = true },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Icon(Icons.Outlined.DeleteOutline, null); Spacer(Modifier.width(4.dp)); Text("Eintrag löschen") }
+            }
+        },
+        confirmButton = { Button(onClick = {
+            val updated = entry.copy(datum = selectedDate.toString(), notiz = note.trim().ifBlank { null })
+            if (updated.datum in occupiedMealDates) confirmReplace = true else save(updated, false)
+        }) { Text("Speichern") } },
+        dismissButton = { TextButton(onClick = dismiss) { Text("Abbrechen") } },
+    )
+    if (confirmReplace) AlertDialog(
+        onDismissRequest = { confirmReplace = false },
+        title = { Text("Mahlzeiten ersetzen?") },
+        text = { Text("Alle für diesen Tag geplanten Mahlzeiten werden entfernt und der Tag wird als „Auswärts essen“ markiert.") },
+        confirmButton = { TextButton(onClick = {
+            confirmReplace = false
+            save(entry.copy(datum = selectedDate.toString(), notiz = note.trim().ifBlank { null }), true)
+        }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Ersetzen") } },
+        dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("Abbrechen") } },
+    )
+    if (confirmDelete && delete != null) AlertDialog(
+        onDismissRequest = { confirmDelete = false },
+        title = { Text("Auswärts-Eintrag löschen?") },
+        text = { Text("Danach können für diesen Tag wieder Mahlzeiten geplant werden.") },
+        confirmButton = { TextButton(onClick = delete, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Löschen") } },
+        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Abbrechen") } },
+    )
+}
+
+private sealed interface PlanItem {
+    data class Month(val yearMonth: YearMonth) : PlanItem
+    data class Day(val date: LocalDate, val meals: List<Mahlzeit>, val awayEntry: AuswaertsEintrag?) : PlanItem
+}
+
+private fun scheduledPlanItems(meals: List<Mahlzeit>, awayEntries: List<AuswaertsEintrag>): List<PlanItem> {
+    val mealsByDate = meals.flatMap { meal ->
+        meal.termine.mapNotNull { date -> runCatching { LocalDate.parse(date) }.getOrNull()?.let { it to meal } }
+    }.groupBy({ it.first }, { it.second })
+    val awayByDate = awayEntries.mapNotNull { entry -> runCatching { LocalDate.parse(entry.datum) }.getOrNull()?.let { it to entry } }.toMap()
+    val dates = mealsByDate.keys + awayByDate.keys
+    return dates.groupBy { YearMonth.from(it) }.toSortedMap().flatMap { (month, days) ->
+        listOf(PlanItem.Month(month)) + days.sorted().map { date -> PlanItem.Day(date, mealsByDate[date].orEmpty(), awayByDate[date]) }
+    }
+}
+
+@Composable
+private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundation.lazy.LazyListState, edit: (Mahlzeit, LocalDate) -> Unit, editAway: (AuswaertsEintrag) -> Unit, openGallery: (Mahlzeit, String) -> Unit, modifier: Modifier = Modifier) {
     if (items.isEmpty()) {
         Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
             Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -449,7 +570,6 @@ private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundati
                 Text("Noch nichts geplant", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text("Plane deine erste Mahlzeit für heute.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(16.dp))
-                Button(onClick = { open(LocalDate.now()) }) { Text("Mahlzeit planen") }
             }
         }
     } else {
@@ -457,7 +577,7 @@ private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundati
             items(items, key = { item -> when (item) { is PlanItem.Month -> "month-${item.yearMonth}"; is PlanItem.Day -> "day-${item.date}" } }) { item ->
                 when (item) {
                     is PlanItem.Month -> Text(item.yearMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.GERMAN)), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
-                    is PlanItem.Day -> PlanDayRow(item.date, item.meals, edit, openGallery)
+                    is PlanItem.Day -> PlanDayRow(item.date, item.meals, item.awayEntry, edit, editAway, openGallery)
                 }
             }
         }
@@ -465,13 +585,14 @@ private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundati
 }
 
 @Composable
-private fun PlanDayRow(date: LocalDate, meals: List<Mahlzeit>, edit: (Mahlzeit, LocalDate) -> Unit, openGallery: (Mahlzeit, String) -> Unit) {
+private fun PlanDayRow(date: LocalDate, meals: List<Mahlzeit>, awayEntry: AuswaertsEintrag?, edit: (Mahlzeit, LocalDate) -> Unit, editAway: (AuswaertsEintrag) -> Unit, openGallery: (Mahlzeit, String) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Column(Modifier.width(54.dp).padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.GERMAN), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = if (date == LocalDate.now()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            awayEntry?.let { AwayEntryCard(it) { editAway(it) } }
             meals.forEach { meal ->
                 meal.eintraege.firstOrNull { it.datum == date.toString() }?.let { occurrence ->
                     WeekAgendaMealCard(meal, occurrence, { edit(meal, date) }) { imageUrl -> openGallery(meal, imageUrl) }
@@ -897,7 +1018,7 @@ internal fun datePickerMillisToLocalDate(value: Long): LocalDate = Instant.ofEpo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MealDateSelector(selectedDate: LocalDate, onDateSelected: (LocalDate) -> Unit) {
+private fun MealDateSelector(selectedDate: LocalDate, blockedDates: Set<LocalDate> = emptySet(), onDateSelected: (LocalDate) -> Unit) {
     var showPicker by rememberSaveable { mutableStateOf(false) }
 
     Box(Modifier.fillMaxWidth()) {
@@ -924,7 +1045,12 @@ private fun MealDateSelector(selectedDate: LocalDate, onDateSelected: (LocalDate
     }
 
     if (showPicker) {
-        val pickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDate.toDatePickerMillis())
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = selectedDate.toDatePickerMillis(),
+            selectableDates = object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean = datePickerMillisToLocalDate(utcTimeMillis) !in blockedDates
+            },
+        )
         DatePickerDialog(
             onDismissRequest = { showPicker = false },
             confirmButton = {
@@ -944,13 +1070,15 @@ private fun MealDateSelector(selectedDate: LocalDate, onDateSelected: (LocalDate
 }
 
 @Composable
-private fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entryId: String?, firstRaterName: String, secondRaterName: String, done: () -> Unit) {
+private fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entryId: String?, firstRaterName: String, secondRaterName: String, awayEntries: List<AuswaertsEintrag>, done: () -> Unit) {
     val meals by vm.meals.collectAsState(); val selectedMeal = meals.find { it.id == mealId }; val existingEntry = selectedMeal?.eintraege?.find { it.id == entryId }; var chosen by remember { mutableStateOf<Mahlzeit?>(null) }
     var name by remember(selectedMeal) { mutableStateOf(selectedMeal?.name ?: "") }; var link by remember(selectedMeal) { mutableStateOf(selectedMeal?.rezeptLink ?: "") }
     var tags by remember(selectedMeal) { mutableStateOf(selectedMeal?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet()) }
     val existingRating = existingEntry?.bewertung; var ratingOne by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(0)?.toString().orEmpty()) }; var ratingTwo by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(1)?.toString().orEmpty()) }
     var selectedDateEpochDay by rememberSaveable(date) { mutableLongStateOf(date.toEpochDay()) }; var expanded by remember { mutableStateOf(false) }; var confirmDelete by remember { mutableStateOf(false) }; var pendingImage by remember { mutableStateOf<PendingEntryImage?>(null) }
     val context = LocalContext.current; val selectedDate = LocalDate.ofEpochDay(selectedDateEpochDay)
+    val blockedDates = awayEntries.mapNotNull { runCatching { LocalDate.parse(it.datum) }.getOrNull() }.toSet()
+    val dateBlocked = selectedDate in blockedDates
     fun selectedImage(stream: () -> java.io.InputStream, filename: String, preview: Any) {
         val meal = selectedMeal
         val entry = existingEntry
@@ -972,7 +1100,10 @@ private fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entr
             RaterScoreField(ratingOne, { ratingOne = it }, firstRaterName, FirstRaterColor)
             RaterScoreField(ratingTwo, { ratingTwo = it }, secondRaterName, SecondRaterColor)
         } }
-        item { FormSection("Termin") { MealDateSelector(selectedDate) { selectedDateEpochDay = it.toEpochDay() } } }
+        item { FormSection("Termin") {
+            MealDateSelector(selectedDate, blockedDates) { selectedDateEpochDay = it.toEpochDay() }
+            if (dateBlocked) Text("An diesem Tag wird auswärts gegessen. Bitte wähle ein anderes Datum.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        } }
         item { FormSection("Bild") {
             pendingImage?.let { image ->
                 AsyncImage(image.preview, "Ausgewähltes Bild", Modifier.fillMaxWidth().height(180.dp).clip(MaterialTheme.shapes.small), contentScale = ContentScale.Crop)
@@ -984,7 +1115,7 @@ private fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entr
             }
         } }
         item { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { val ratingTexts = listOf(ratingOne, ratingTwo); val ratingsProvided = ratingTexts.any { it.isNotBlank() }; val validRatings = ratingTexts.map { it.replace(',', '.').toDoubleOrNull()?.takeIf { value -> value in 1.0..10.0 } }; if (name.isBlank() || (ratingsProvided && validRatings.any { it == null })) return@Button; val base = selectedMeal ?: chosen ?: Mahlzeit(name = name.trim()); val meal = base.copy(name = name.trim(), rezeptLink = link.trim().ifBlank { null }, tags = tags.normalizedDietTags().map { it.name }); val rating = if (ratingsProvided) MahlzeitBewertung(validRatings.filterNotNull()) else null; val occurrence = existingEntry?.copy(datum = selectedDate.toString(), bewertung = rating) ?: MahlzeitEintrag(datum = selectedDate.toString(), bewertung = rating); when { existingEntry != null -> vm.updateEntry(meal, occurrence); selectedMeal != null || chosen != null -> vm.createEntry(meal, occurrence, pendingImage?.upload); else -> vm.createMeal(meal, occurrence, pendingImage?.upload) }; done() }, modifier = Modifier.fillMaxWidth()) { Text("Speichern") }
+            Button(onClick = { val ratingTexts = listOf(ratingOne, ratingTwo); val ratingsProvided = ratingTexts.any { it.isNotBlank() }; val validRatings = ratingTexts.map { it.replace(',', '.').toDoubleOrNull()?.takeIf { value -> value in 1.0..10.0 } }; if (name.isBlank() || dateBlocked || (ratingsProvided && validRatings.any { it == null })) return@Button; val base = selectedMeal ?: chosen ?: Mahlzeit(name = name.trim()); val meal = base.copy(name = name.trim(), rezeptLink = link.trim().ifBlank { null }, tags = tags.normalizedDietTags().map { it.name }); val rating = if (ratingsProvided) MahlzeitBewertung(validRatings.filterNotNull()) else null; val occurrence = existingEntry?.copy(datum = selectedDate.toString(), bewertung = rating) ?: MahlzeitEintrag(datum = selectedDate.toString(), bewertung = rating); when { existingEntry != null -> vm.updateEntry(meal, occurrence); selectedMeal != null || chosen != null -> vm.createEntry(meal, occurrence, pendingImage?.upload); else -> vm.createMeal(meal, occurrence, pendingImage?.upload) }; done() }, enabled = !dateBlocked, modifier = Modifier.fillMaxWidth()) { Text("Speichern") }
         } }
         if (existingEntry != null) item { Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) { TextButton({ confirmDelete = true }, Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Icon(Icons.Outlined.DeleteOutline, null); Spacer(Modifier.width(4.dp)); Text("Eintrag löschen") } } }
     }

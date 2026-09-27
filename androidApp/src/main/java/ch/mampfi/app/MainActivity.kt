@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import ch.mampfi.app.data.MealApi
 import ch.mampfi.app.data.MealDatabase
 import ch.mampfi.app.data.MealRepository
@@ -44,7 +46,11 @@ import retrofit2.Retrofit
 class MainActivity : ComponentActivity() {
     private val db by lazy {
         Room.databaseBuilder(applicationContext, MealDatabase::class.java, "mampfi.db")
-            .fallbackToDestructiveMigration()
+            .addMigrations(object : Migration(2, 3) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `auswaerts_eintraege` (`id` TEXT NOT NULL, `datum` TEXT NOT NULL, `notiz` TEXT, PRIMARY KEY(`id`))")
+                }
+            })
             .build()
     }
 
@@ -108,7 +114,7 @@ class MainActivity : ComponentActivity() {
                     }
                     val vm: MealViewModel = viewModel(
                         key = baseUrl,
-                        factory = MealViewModelFactory(MealRepository(api, db.meals(), baseUrl!!)),
+                        factory = MealViewModelFactory(MealRepository(api, db.meals(), db.awayEntries(), baseUrl!!)),
                     )
                     MampfiApp(
                         vm,

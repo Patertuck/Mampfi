@@ -15,6 +15,7 @@ data class PendingImageUpload(val filename: String, val openStream: () -> InputS
 
 class MealViewModel(private val repository: MealRepository) : ViewModel() {
     val meals = repository.meals.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val awayEntries = repository.awayEntries.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _message = MutableSharedFlow<String>(); val message = _message.asSharedFlow()
     private var foregroundRefreshJob: Job? = null
 
@@ -57,6 +58,21 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
     }
     fun updateEntry(meal: Mahlzeit, entry: MahlzeitEintrag) = viewModelScope.launch { repository.updateEntry(meal, entry).notifySave() }
     fun deleteEntry(mealId: String, entryId: String) = viewModelScope.launch { repository.deleteEntry(mealId, entryId).onSuccess { _message.emit("Eintrag gelöscht.") }.onFailure { _message.emit("Löschen fehlgeschlagen.") } }
+    fun createAwayEntry(entry: AuswaertsEintrag, replaceMeals: Boolean, onSuccess: () -> Unit) = viewModelScope.launch {
+        repository.createAwayEntry(entry, replaceMeals)
+            .onSuccess { _message.emit("Auswärts-Eintrag gespeichert."); onSuccess() }
+            .onFailure { _message.emit("Speichern fehlgeschlagen. Der Tag wurde möglicherweise inzwischen belegt.") }
+    }
+    fun updateAwayEntry(entry: AuswaertsEintrag, replaceMeals: Boolean, onSuccess: () -> Unit) = viewModelScope.launch {
+        repository.updateAwayEntry(entry, replaceMeals)
+            .onSuccess { _message.emit("Auswärts-Eintrag gespeichert."); onSuccess() }
+            .onFailure { _message.emit("Speichern fehlgeschlagen. Der Tag wurde möglicherweise inzwischen belegt.") }
+    }
+    fun deleteAwayEntry(id: String, onSuccess: () -> Unit) = viewModelScope.launch {
+        repository.deleteAwayEntry(id)
+            .onSuccess { _message.emit("Auswärts-Eintrag gelöscht."); onSuccess() }
+            .onFailure { _message.emit("Löschen fehlgeschlagen.") }
+    }
     fun addImage(mealId: String, entryId: String, name: String, stream: () -> InputStream) = viewModelScope.launch {
         val input = runCatching(stream).getOrElse {
             _message.emit("Bild-Upload fehlgeschlagen.")

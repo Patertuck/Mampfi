@@ -23,6 +23,9 @@ import java.util.UUID
 
 @Serializable data class MahlzeitBild(val id: String = UUID.randomUUID().toString(), val url: String)
 @Serializable data class MahlzeitBewertung(val werte: List<Double>)
+@Serializable data class AuswaertsEintrag(
+    val id: String = UUID.randomUUID().toString(), val datum: String, val notiz: String? = null,
+)
 @Serializable data class MahlzeitEintrag(
     val id: String = UUID.randomUUID().toString(), val datum: String,
     val bilder: List<MahlzeitBild> = emptyList(), val bewertung: MahlzeitBewertung? = null,
@@ -60,6 +63,41 @@ fun Application.module(
     } }
     routing {
         staticFiles("/uploads", uploads)
+        route("/api/auswaerts") {
+            get { call.respond(repository.allAwayEntries()) }
+            post {
+                val entry = call.receive<AuswaertsEintrag>().normalized()
+                validateAwayEntry(entry)?.let { call.respond(HttpStatusCode.BadRequest, it); return@post }
+                val replace = call.request.queryParameters["ersetzen"]?.toBooleanStrictOrNull() ?: false
+                val result = repository.createAwayEntry(entry, replace)
+                result.deletedImageUrls.forEach { deleteUploadedFile(uploads, it) }
+                when (result.status) {
+                    AwayWriteStatus.CREATED -> call.respond(HttpStatusCode.Created, entry)
+                    AwayWriteStatus.DATE_OCCUPIED -> call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "Für dieses Datum ist bereits ein Eintrag vorhanden"))
+                    AwayWriteStatus.MEALS_EXIST -> call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "Für dieses Datum sind Mahlzeiten geplant"))
+                    else -> call.respond(HttpStatusCode.InternalServerError)
+                }
+            }
+            put("/{id}") {
+                val id = call.parameters["id"]!!
+                val entry = call.receive<AuswaertsEintrag>().copy(id = id).normalized()
+                validateAwayEntry(entry)?.let { call.respond(HttpStatusCode.BadRequest, it); return@put }
+                val replace = call.request.queryParameters["ersetzen"]?.toBooleanStrictOrNull() ?: false
+                val result = repository.updateAwayEntry(entry, replace)
+                result.deletedImageUrls.forEach { deleteUploadedFile(uploads, it) }
+                when (result.status) {
+                    AwayWriteStatus.UPDATED -> call.respond(entry)
+                    AwayWriteStatus.NOT_FOUND -> call.respond(HttpStatusCode.NotFound)
+                    AwayWriteStatus.DATE_OCCUPIED -> call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "Für dieses Datum ist bereits ein Eintrag vorhanden"))
+                    AwayWriteStatus.MEALS_EXIST -> call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "Für dieses Datum sind Mahlzeiten geplant"))
+                    else -> call.respond(HttpStatusCode.InternalServerError)
+                }
+            }
+            delete("/{id}") {
+                if (repository.deleteAwayEntry(call.parameters["id"]!!)) call.respond(HttpStatusCode.NoContent)
+                else call.respond(HttpStatusCode.NotFound)
+            }
+        }
         route("/api/mahlzeiten") {
             get { call.respond(repository.all()) }
             get("/{id}") { repository.find(call.parameters["id"]!!)?.let { call.respond(it) } ?: call.respond(HttpStatusCode.NotFound) }
@@ -69,6 +107,8 @@ fun Application.module(
                 if (repository.find(meal.id) != null) call.respond(HttpStatusCode.Conflict) else try {
                     repository.insert(meal)
                     call.respond(HttpStatusCode.Created, repository.find(meal.id)!!)
+                } catch (_: DateBlockedException) {
+                    call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "An diesem Datum wird auswärts gegessen"))
                 } catch (error: java.sql.SQLException) {
                     if (error.isConflict()) call.respond(HttpStatusCode.Conflict) else throw error
                 }
@@ -92,6 +132,8 @@ fun Application.module(
                 validateEntry(entry)?.let { call.respond(HttpStatusCode.BadRequest, it); return@post }
                 try {
                     if (repository.insertEntry(mealId, entry)) call.respond(HttpStatusCode.Created, entry) else call.respond(HttpStatusCode.NotFound)
+                } catch (_: DateBlockedException) {
+                    call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "An diesem Datum wird auswärts gegessen"))
                 } catch (error: java.sql.SQLException) {
                     if (error.isConflict()) call.respond(HttpStatusCode.Conflict) else throw error
                 }
@@ -105,6 +147,8 @@ fun Application.module(
                     if (repository.updateEntry(mealId, entry)) {
                         call.respond(repository.find(mealId)!!.eintraege.first { it.id == entryId })
                     } else call.respond(HttpStatusCode.NotFound)
+                } catch (_: DateBlockedException) {
+                    call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "An diesem Datum wird auswärts gegessen"))
                 } catch (error: java.sql.SQLException) {
                     if (error.isConflict()) call.respond(HttpStatusCode.Conflict) else throw error
                 }
@@ -146,6 +190,13 @@ private fun validateEntry(entry: MahlzeitEintrag): Map<String, String>? = when {
     runCatching { LocalDate.parse(entry.datum) }.isFailure -> mapOf("fehler" to "Ungültiges Datum")
     entry.bewertung?.werte?.size?.let { it != 2 } == true -> mapOf("fehler" to "Jede Bewertung braucht genau zwei Werte")
     entry.bewertung?.werte?.any { it !in 1.0..10.0 } == true -> mapOf("fehler" to "Bewertung muss zwischen 1 und 10 liegen")
+    else -> null
+}
+
+private fun AuswaertsEintrag.normalized() = copy(notiz = notiz?.trim()?.ifBlank { null })
+
+private fun validateAwayEntry(entry: AuswaertsEintrag): Map<String, String>? = when {
+    runCatching { LocalDate.parse(entry.datum) }.isFailure -> mapOf("fehler" to "Ungültiges Datum")
     else -> null
 }
 
