@@ -21,6 +21,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -156,10 +157,7 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
             ) }
             composable("uebersicht") { OverviewScreen(
                 meals = vm.meals.collectAsState().value.filter { it.eintraege.isNotEmpty() },
-                edit = { meal ->
-                    val latest = meal.eintraege.maxByOrNull { it.datum }
-                    nav.navigate("bearbeiten/${latest?.datum ?: LocalDate.now()}?meal=${meal.id}${latest?.let { "&entry=${it.id}" }.orEmpty()}")
-                },
+                open = { meal -> nav.navigate("mahlzeit/${meal.id}") },
                 setIdea = { meal, isIdea -> vm.setIdea(meal, isIdea) },
             ) }
             composable("einstellungen") { EndpointSetupScreen(endpointStore, configured = true) { nav.popBackStack() } }
@@ -167,6 +165,20 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
                 vm = vm,
                 mealId = entry.arguments?.getString("meal"),
                 schedule = { mealId -> nav.navigate("bearbeiten/${LocalDate.now()}?meal=$mealId") { popUpTo("ideen") } },
+                done = { nav.popBackStack() },
+            ) }
+            composable("mahlzeit/{meal}") { entry -> MealDetailScreen(
+                vm = vm,
+                mealId = entry.arguments?.getString("meal")!!,
+                firstRaterName = appSettings.firstRaterName,
+                secondRaterName = appSettings.secondRaterName,
+                back = { nav.popBackStack() },
+                edit = { nav.navigate("mahlzeit-bearbeiten/$it") },
+                schedule = { nav.navigate("bearbeiten/${LocalDate.now()}?meal=$it") },
+            ) }
+            composable("mahlzeit-bearbeiten/{meal}") { entry -> SharedMealEditScreen(
+                vm = vm,
+                mealId = entry.arguments?.getString("meal")!!,
                 done = { nav.popBackStack() },
             ) }
             composable("bearbeiten/{date}?meal={meal}&entry={entry}") { entry -> EditScreen(vm, LocalDate.parse(entry.arguments!!.getString("date")!!), entry.arguments?.getString("meal"), entry.arguments?.getString("entry"), appSettings.firstRaterName, appSettings.secondRaterName, vm.awayEntries.collectAsState().value) { nav.popBackStack() } }
@@ -682,7 +694,257 @@ private fun IdeaCard(idea: Mahlzeit, click: () -> Unit) = Card(
 }
 
 @Composable
-private fun OverviewScreen(meals: List<Mahlzeit>, edit: (Mahlzeit) -> Unit, setIdea: (Mahlzeit, Boolean) -> Unit) {
+private fun MealDetailScreen(
+    vm: MealViewModel,
+    mealId: String,
+    firstRaterName: String,
+    secondRaterName: String,
+    back: () -> Unit,
+    edit: (String) -> Unit,
+    schedule: (String) -> Unit,
+) {
+    val meal = vm.meals.collectAsState().value.find { it.id == mealId }
+    var galleryImageUrl by remember { mutableStateOf<String?>(null) }
+    if (meal == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+    val uriHandler = LocalUriHandler.current
+    val recipeUrl = normalizedWebUrlOrNull(meal.rezeptLink.orEmpty())
+    val history = remember(meal.eintraege) { meal.eintraege.sortedByDescending { it.datum } }
+    var historyExpanded by rememberSaveable(meal.id) { mutableStateOf(false) }
+    val visibleHistory = if (historyExpanded) history else history.take(5)
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Zurück") }
+                Text(meal.name, Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { schedule(meal.id) }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Outlined.CalendarMonth, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Einplanen")
+                }
+                OutlinedButton(onClick = { edit(meal.id) }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Outlined.Edit, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Bearbeiten")
+                }
+            }
+        }
+        item {
+            FormSection("Mahlzeit", trailing = { DietMarker(meal) }) {
+                meal.tags.filterNot { it == Tag.VEGETARISCH.name || it == Tag.VEGAN.name }.takeIf { it.isNotEmpty() }?.let { tags ->
+                    Text(tags.joinToString(" · ") { value -> Tag.entries.find { it.name == value }?.label ?: value }, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = recipeUrl != null) { recipeUrl?.let { runCatching { uriHandler.openUri(it) } } },
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            meal.rezeptLink?.takeIf { it.isNotBlank() } ?: "Kein Rezept-Link",
+                            Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = if (recipeUrl == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                            textDecoration = if (recipeUrl == null) null else TextDecoration.Underline,
+                        )
+                    }
+                }
+                meal.notiz?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+        }
+        item {
+            FormSection("Statistik") {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    maxItemsInEachRow = 2,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    MealStat("Gekocht", meal.eintraege.size.toString(), modifier = Modifier.weight(1f))
+                    MealStat("Ø gesamt", formatRating(meal.durchschnitt()), modifier = Modifier.weight(1f))
+                    MealStat(firstRaterName, formatRating(meal.durchschnittFuer(0)), FirstRaterColor, Modifier.weight(1f))
+                    MealStat(secondRaterName, formatRating(meal.durchschnittFuer(1)), SecondRaterColor, Modifier.weight(1f))
+                    MealStat("Zum ersten Mal", meal.ersterTermin()?.let(::formatImageDate) ?: "–", modifier = Modifier.weight(1f))
+                    MealStat("Zuletzt", meal.letzterTermin()?.let(::formatImageDate) ?: "–", modifier = Modifier.weight(1f))
+                }
+            }
+        }
+        item { Text("Kochhistorie", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) }
+        items(visibleHistory, key = { it.id }) { occurrence ->
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(Modifier.fillMaxWidth()) {
+                    occurrence.bilder.firstOrNull()?.let { leadImage ->
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .clickable { galleryImageUrl = leadImage.url },
+                        ) {
+                            AsyncImage(
+                                leadImage.url,
+                                "Fotos vom ${formatImageDate(occurrence.datum)} ansehen",
+                                Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                            val additionalImages = occurrence.bilder.size - 1
+                            if (additionalImages > 0) Surface(
+                                modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
+                                color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.72f),
+                                contentColor = Color.White,
+                                shape = MaterialTheme.shapes.small,
+                            ) {
+                                Text("+$additionalImages", Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+                    }
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(formatHistoryDate(occurrence.datum), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
+                                Text(
+                                    occurrence.durchschnitt()?.let { "${formatRating(it)} / 10" } ?: "Nicht bewertet",
+                                    Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
+                            }
+                        }
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            HistoryRatingChip(firstRaterName, occurrence.bewertung?.werte?.getOrNull(0), FirstRaterColor)
+                            HistoryRatingChip(secondRaterName, occurrence.bewertung?.werte?.getOrNull(1), SecondRaterColor)
+                        }
+                    }
+                }
+            }
+        }
+        if (history.size > 5) item {
+            TextButton(onClick = { historyExpanded = !historyExpanded }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (historyExpanded) "Weniger anzeigen" else "Alle ${history.size} Einträge anzeigen")
+            }
+        }
+    }
+    galleryImageUrl?.let { imageUrl -> MealImageGallery(meal, imageUrl) { galleryImageUrl = null } }
+}
+
+@Composable
+private fun MealStat(label: String, value: String, accent: Color = MaterialTheme.colorScheme.primary, modifier: Modifier = Modifier) = Surface(
+    modifier = modifier,
+    color = MaterialTheme.colorScheme.surfaceVariant,
+    shape = MaterialTheme.shapes.small,
+) {
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = accent)
+    }
+}
+
+private fun formatRating(value: Double?): String = value?.let { String.format(Locale.GERMANY, "%.1f", it) } ?: "–"
+
+private fun formatHistoryDate(value: String): String = runCatching {
+    LocalDate.parse(value).format(DateTimeFormatter.ofPattern("EEEE, d. MMMM yyyy", Locale.GERMAN))
+}.getOrDefault(value)
+
+@Composable
+private fun HistoryRatingChip(name: String, rating: Double?, accent: Color) = Surface(
+    color = accent.copy(alpha = 0.14f),
+    contentColor = accent,
+    shape = MaterialTheme.shapes.small,
+) {
+    Text(
+        "$name: ${formatRating(rating)}",
+        Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        style = MaterialTheme.typography.labelLarge,
+    )
+}
+
+@Composable
+private fun SharedMealEditScreen(vm: MealViewModel, mealId: String, done: () -> Unit) {
+    val meal = vm.meals.collectAsState().value.find { it.id == mealId }
+    if (meal == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+    var name by remember(meal.id) { mutableStateOf(meal.name) }
+    var link by remember(meal.id) { mutableStateOf(meal.rezeptLink.orEmpty()) }
+    var note by remember(meal.id) { mutableStateOf(meal.notiz.orEmpty()) }
+    var tags by remember(meal.id) { mutableStateOf(meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags()) }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().imePadding(),
+        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = done) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Zurück") }
+                Text("Mahlzeit bearbeiten", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            }
+        }
+        item {
+            FormSection("Mahlzeit") {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { value -> name = if ('\n' in value || '\r' in value) normalizePastedMealName(value) else value },
+                    label = { Text("Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                )
+                RecipeLinkField(link, true) { link = it }
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("Notiz (optional)") },
+                    placeholder = { Text("z. B. Änderungen am Rezept") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                )
+            }
+        }
+        item {
+            FormSection("Eigenschaften") {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Tag.entries.forEach { tag -> FilterChip(tag in tags, { tags = tags.toggleMealTag(tag) }, { Text(tag.label) }) }
+                }
+            }
+        }
+        item {
+            Button(
+                onClick = {
+                    if (name.isBlank()) return@Button
+                    vm.updateMeal(
+                        meal.copy(
+                            name = name.trim(),
+                            rezeptLink = link.trim().ifBlank { null },
+                            tags = tags.normalizedDietTags().map { it.name },
+                            notiz = note.trim().ifBlank { null },
+                        ),
+                        done,
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Speichern") }
+        }
+    }
+}
+
+@Composable
+private fun OverviewScreen(meals: List<Mahlzeit>, open: (Mahlzeit) -> Unit, setIdea: (Mahlzeit, Boolean) -> Unit) {
     var selected by remember { mutableStateOf(setOf<Tag>()) }
     var query by rememberSaveable { mutableStateOf("") }
     var criterion by remember { mutableStateOf("Zuletzt gekocht") }
@@ -728,7 +990,7 @@ private fun OverviewScreen(meals: List<Mahlzeit>, edit: (Mahlzeit) -> Unit, setI
                 Text(if (meals.isEmpty()) "Noch keine Mahlzeiten" else "Keine passenden Mahlzeiten", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Text(if (meals.isEmpty()) "Plane im Kalender euer erstes Essen." else "Passe deine Suche oder Filter an.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        } else LazyVerticalGrid(GridCells.Adaptive(164.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) { items(filtered, key = { it.id }) { meal -> MealCard(meal, { edit(meal) }, { setIdea(meal, !meal.istIdee) }) { galleryMeal = meal } } }
+        } else LazyVerticalGrid(GridCells.Adaptive(164.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) { items(filtered, key = { it.id }) { meal -> MealCard(meal, { open(meal) }, { setIdea(meal, !meal.istIdee) }) { galleryMeal = meal } } }
     }
     galleryMeal?.let { meal -> MealImageGallery(meal) { galleryMeal = null } }
 }
@@ -758,6 +1020,7 @@ private fun MealCard(meal: Mahlzeit, click: () -> Unit, toggleIdea: () -> Unit, 
                 Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
                     Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "– / 10", Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
+                Text("${meal.eintraege.size}×", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.CalendarMonth, contentDescription = "Zuletzt gekocht", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(4.dp))
@@ -1159,4 +1422,12 @@ private fun RaterScoreField(value: String, update: (String) -> Unit, name: Strin
 }
 
 @Composable
-private fun FormSection(title: String, content: @Composable ColumnScope.() -> Unit) = Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); content() } }
+private fun FormSection(title: String, trailing: (@Composable () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) = Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium) {
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            trailing?.invoke()
+        }
+        content()
+    }
+}

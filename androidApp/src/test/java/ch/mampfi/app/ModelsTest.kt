@@ -59,9 +59,12 @@ class ModelsTest {
         )
 
         assertEquals(listOf("2026-03-03", "2027-06-06"), meal.termine)
+        assertEquals("2026-03-03", meal.ersterTermin())
         assertEquals("2027-06-06", meal.letzterTermin())
         assertEquals("/uploads/second.jpg", meal.letztesBild())
         assertEquals(9.0, meal.durchschnitt())
+        assertEquals(8.5, meal.durchschnittFuer(0))
+        assertEquals(9.5, meal.durchschnittFuer(1))
     }
 
     @Test

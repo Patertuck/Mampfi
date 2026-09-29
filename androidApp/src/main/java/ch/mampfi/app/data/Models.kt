@@ -30,6 +30,8 @@ data class DatiertesMahlzeitBild(val url: String, val datum: String)
     val termine get() = eintraege.map { it.datum }
     val bilder get() = eintraege.flatMap { entry -> entry.bilder.map { DatiertesMahlzeitBild(it.url, entry.datum) } }
     fun durchschnitt() = eintraege.mapNotNull { it.bewertung }.flatMap { it.werte }.takeIf { it.isNotEmpty() }?.average()
+    fun durchschnittFuer(personIndex: Int) = eintraege.mapNotNull { it.bewertung?.werte?.getOrNull(personIndex) }.takeIf { it.isNotEmpty() }?.average()
+    fun ersterTermin() = termine.minOrNull()
     fun letztesBild() = bilder.maxByOrNull { it.datum }?.url
     fun letzterTermin() = termine.maxOrNull()
     fun hatTag(tag: Tag) = when (tag) {

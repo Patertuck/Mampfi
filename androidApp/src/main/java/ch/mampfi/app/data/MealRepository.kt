@@ -42,6 +42,10 @@ class MealRepository(private val api: MealApi, private val dao: MealDao, private
         api.update(meal.id, meal.copy(istIdee = true).withRelativeImageUrls())
         refresh().getOrThrow()
     }
+    suspend fun updateMeal(meal: Mahlzeit): Result<Unit> = runCatching {
+        api.update(meal.id, meal.withRelativeImageUrls())
+        refresh().getOrThrow()
+    }
     suspend fun setIdea(meal: Mahlzeit, isIdea: Boolean): Result<Unit> = runCatching {
         api.update(meal.id, meal.copy(istIdee = isIdea).withRelativeImageUrls())
         refresh().getOrThrow()

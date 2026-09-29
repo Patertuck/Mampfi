@@ -53,6 +53,11 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
             .onSuccess { _message.emit(if (isIdea) "Zu Ideen hinzugefügt." else "Aus Ideen entfernt."); onSuccess() }
             .onFailure { _message.emit("Speichern fehlgeschlagen.") }
     }
+    fun updateMeal(meal: Mahlzeit, onSuccess: () -> Unit) = viewModelScope.launch {
+        repository.updateMeal(meal)
+            .onSuccess { _message.emit("Mahlzeit gespeichert."); onSuccess() }
+            .onFailure { _message.emit("Speichern fehlgeschlagen.") }
+    }
     fun createEntry(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null) = viewModelScope.launch {
         saveWithOptionalImage(repository.createEntry(meal, entry), meal.id, entry.id, image)
     }
