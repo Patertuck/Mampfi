@@ -25,6 +25,7 @@ data class DatiertesMahlzeitBild(val url: String, val datum: String)
 @Serializable data class Mahlzeit(
     val id: String = UUID.randomUUID().toString(), val name: String, val rezeptLink: String? = null,
     val tags: List<String> = emptyList(), val istIdee: Boolean = false, val eintraege: List<MahlzeitEintrag> = emptyList(),
+    val notiz: String? = null,
 ) {
     val termine get() = eintraege.map { it.datum }
     val bilder get() = eintraege.flatMap { entry -> entry.bilder.map { DatiertesMahlzeitBild(it.url, entry.datum) } }

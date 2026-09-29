@@ -1,11 +1,19 @@
 package ch.mampfi.app.data
 
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class ModelsTest {
+    @Test
+    fun `older cached meals decode without a note`() {
+        val meal = Json { ignoreUnknownKeys = true }.decodeFromString<Mahlzeit>("""{"name":"Ramen"}""")
+
+        assertEquals(null, meal.notiz)
+    }
+
     @Test
     fun `idea flag is independent from dated entries`() {
         assertFalse(Mahlzeit(name = "Ramen").istIdee)

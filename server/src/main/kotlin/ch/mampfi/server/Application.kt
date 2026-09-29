@@ -35,6 +35,7 @@ import java.util.UUID
     val rezeptLink: String? = null, val tags: List<String> = emptyList(),
     val istIdee: Boolean = false,
     val eintraege: List<MahlzeitEintrag> = emptyList(),
+    val notiz: String? = null,
 )
 
 fun main(args: Array<String>) {
@@ -102,7 +103,7 @@ fun Application.module(
             get { call.respond(repository.all()) }
             get("/{id}") { repository.find(call.parameters["id"]!!)?.let { call.respond(it) } ?: call.respond(HttpStatusCode.NotFound) }
             post {
-                val meal = call.receive<Mahlzeit>()
+                val meal = call.receive<Mahlzeit>().normalized()
                 validateNewMeal(meal)?.let { call.respond(HttpStatusCode.BadRequest, it); return@post }
                 if (repository.find(meal.id) != null) call.respond(HttpStatusCode.Conflict) else try {
                     repository.insert(meal)
@@ -115,7 +116,7 @@ fun Application.module(
             }
             put("/{id}") {
                 val id = call.parameters["id"]!!
-                val meal = call.receive<Mahlzeit>().copy(id = id)
+                val meal = call.receive<Mahlzeit>().copy(id = id).normalized()
                 validateShared(meal)?.let { call.respond(HttpStatusCode.BadRequest, it); return@put }
                 if (repository.updateMeal(meal)) call.respond(repository.find(id)!!) else call.respond(HttpStatusCode.NotFound)
             }
@@ -194,6 +195,8 @@ private fun validateEntry(entry: MahlzeitEintrag): Map<String, String>? = when {
 }
 
 private fun AuswaertsEintrag.normalized() = copy(notiz = notiz?.trim()?.ifBlank { null })
+
+private fun Mahlzeit.normalized() = copy(notiz = notiz?.trim()?.ifBlank { null })
 
 private fun validateAwayEntry(entry: AuswaertsEintrag): Map<String, String>? = when {
     runCatching { LocalDate.parse(entry.datum) }.isFailure -> mapOf("fehler" to "Ungültiges Datum")
