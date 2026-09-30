@@ -40,6 +40,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Spa
+import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material.icons.outlined.ViewList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -222,17 +223,18 @@ private fun CalendarScreen(
     updateAway: (AuswaertsEintrag, Boolean, () -> Unit) -> Unit,
     deleteAway: (String, () -> Unit) -> Unit,
 ) {
-    val currentMonth = remember { YearMonth.now() }
+    val today = LocalDate.now()
+    val currentMonth = YearMonth.from(today)
     val calendarStartDate = remember(currentMonth) { currentMonth.minusMonths(24).atDay(1) }
     val calendarEndDate = remember(currentMonth) { currentMonth.plusMonths(24).atEndOfMonth() }
     val weekState = rememberWeekCalendarState(
         startDate = calendarStartDate,
         endDate = calendarEndDate,
-        firstVisibleWeekDate = LocalDate.now(),
+        firstVisibleWeekDate = today,
         firstDayOfWeek = java.time.DayOfWeek.MONDAY,
     )
     var calendarView by rememberSaveable { mutableStateOf("WEEK") }
-    var selectedWeekDate by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
+    var selectedWeekDate by rememberSaveable { mutableStateOf(today.toString()) }
     var receivedInitialWeek by remember { mutableStateOf(false) }
     var planInitialised by rememberSaveable { mutableStateOf(false) }
     var galleryMeal by remember { mutableStateOf<Mahlzeit?>(null) }
@@ -251,17 +253,11 @@ private fun CalendarScreen(
             }
     }
     val selectedDate = LocalDate.parse(selectedWeekDate)
-    val planItems = remember(meals, awayEntries) { scheduledPlanItems(meals, awayEntries) }
-    val firstFuturePlanIndex = if (planItems.isEmpty()) {
-        0
-    } else {
-        val firstFutureDayIndex = planItems.indexOfFirst { it is PlanItem.Day && !it.date.isBefore(LocalDate.now()) }
-            .let { if (it >= 0) it else planItems.indexOfLast { it is PlanItem.Day }.coerceAtLeast(0) }
-        planItems.subList(0, firstFutureDayIndex + 1).indexOfLast { it is PlanItem.Month }.coerceAtLeast(0)
-    }
+    val planItems = remember(meals, awayEntries, today) { scheduledPlanItems(meals, awayEntries, today) }
+    val todayMarkerIndex = planItems.indexOfFirst { it is PlanItem.TodayMarker }.coerceAtLeast(0)
     LaunchedEffect(calendarView, planItems) {
-        if (calendarView == "PLAN" && !planInitialised && planItems.isNotEmpty()) {
-            planListState.scrollToItem(firstFuturePlanIndex)
+        if (calendarView == "PLAN" && !planInitialised) {
+            planListState.scrollToItem(todayMarkerIndex)
             planInitialised = true
         }
     }
@@ -289,24 +285,37 @@ private fun CalendarScreen(
         )
     } else Modifier
     Column(Modifier.fillMaxSize().then(weekSwipeModifier).padding(horizontal = 16.dp, vertical = 12.dp)) {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            SegmentedButton(
-                selected = calendarView == "WEEK",
-                onClick = {
-                    if (calendarView != "WEEK") {
-                        calendarView = "WEEK"
-                        scope.launch { weekState.scrollToWeek(selectedDate) }
-                    }
-                },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                label = { Text("Woche") },
-            )
-            SegmentedButton(
-                selected = calendarView == "PLAN",
-                onClick = { calendarView = "PLAN" },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                label = { Text("Plan") },
-            )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            SingleChoiceSegmentedButtonRow(Modifier.weight(1f)) {
+                SegmentedButton(
+                    selected = calendarView == "WEEK",
+                    onClick = {
+                        if (calendarView != "WEEK") {
+                            calendarView = "WEEK"
+                            scope.launch { weekState.scrollToWeek(selectedDate) }
+                        }
+                    },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    label = { Text("Woche") },
+                )
+                SegmentedButton(
+                    selected = calendarView == "PLAN",
+                    onClick = { calendarView = "PLAN" },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    label = { Text("Plan") },
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            IconButton(onClick = {
+                if (calendarView == "WEEK") {
+                    selectedWeekDate = today.toString()
+                    scope.launch { weekState.animateScrollToWeek(today) }
+                } else {
+                    scope.launch { planListState.animateScrollToItem(todayMarkerIndex) }
+                }
+            }) {
+                Icon(Icons.Outlined.Today, contentDescription = "Zu heute springen")
+            }
         }
         Spacer(Modifier.height(16.dp))
         if (calendarView == "WEEK") {
@@ -315,7 +324,7 @@ private fun CalendarScreen(
                 state = weekState,
                 userScrollEnabled = false,
                 weekHeader = { week -> CalendarWeekHeader(week.days.first().date, week.days.last().date) },
-                dayContent = { day -> WeekCalendarCell(day.date, meals.count { day.date.toString() in it.termine }, awayEntries.any { it.datum == day.date.toString() }, day.date == selectedDate) { selectedWeekDate = day.date.toString() } },
+                dayContent = { day -> WeekCalendarCell(day.date, meals.count { day.date.toString() in it.termine }, awayEntries.any { it.datum == day.date.toString() }, day.date == selectedDate, day.date == today) { selectedWeekDate = day.date.toString() } },
             )
             Spacer(Modifier.height(12.dp))
             Box(Modifier.weight(1f)) {
@@ -334,9 +343,9 @@ private fun CalendarScreen(
             }
         } else {
             Box(Modifier.weight(1f)) {
-                PlanSchedule(planItems, planListState, edit, { editingAway = it; creatingAway = false }, { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl }, Modifier.fillMaxSize())
-                if (awayEntries.none { it.datum == LocalDate.now().toString() }) FloatingActionButton(
-                    onClick = { actionDate = LocalDate.now() }, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                PlanSchedule(planItems, planListState, today, edit, { editingAway = it; creatingAway = false }, { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl }, Modifier.fillMaxSize())
+                if (awayEntries.none { it.datum == today.toString() }) FloatingActionButton(
+                    onClick = { actionDate = today }, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                 ) { Icon(Icons.Outlined.Add, contentDescription = "Eintrag hinzufügen") }
             }
         }
@@ -383,8 +392,7 @@ private fun CalendarWeekHeader(start: LocalDate, end: LocalDate) {
 }
 
 @Composable
-private fun WeekCalendarCell(date: LocalDate, mealCount: Int, blocked: Boolean, selected: Boolean, select: () -> Unit) {
-    val today = date == LocalDate.now()
+private fun WeekCalendarCell(date: LocalDate, mealCount: Int, blocked: Boolean, selected: Boolean, today: Boolean, select: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().height(82.dp).padding(horizontal = 2.dp, vertical = 3.dp).clip(MaterialTheme.shapes.medium).clickable(onClick = select),
         shape = MaterialTheme.shapes.medium,
@@ -393,7 +401,15 @@ private fun WeekCalendarCell(date: LocalDate, mealCount: Int, blocked: Boolean, 
     ) {
         Column(Modifier.padding(vertical = 7.dp, horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.GERMAN), style = MaterialTheme.typography.labelSmall, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Surface(
+                color = if (today) MaterialTheme.colorScheme.primary else Color.Transparent,
+                contentColor = if (today) MaterialTheme.colorScheme.onPrimary else LocalContentColor.current,
+                shape = CircleShape,
+            ) {
+                Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                    Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+            }
             if (blocked) {
                 Icon(Icons.Outlined.Restaurant, "Auswärts essen", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.secondary)
             } else if (mealCount > 0) {
@@ -557,24 +573,38 @@ private fun AwayEntryDialog(
     )
 }
 
-private sealed interface PlanItem {
+internal sealed interface PlanItem {
     data class Month(val yearMonth: YearMonth) : PlanItem
+    data class TodayMarker(val date: LocalDate) : PlanItem
     data class Day(val date: LocalDate, val meals: List<Mahlzeit>, val awayEntry: AuswaertsEintrag?) : PlanItem
 }
 
-private fun scheduledPlanItems(meals: List<Mahlzeit>, awayEntries: List<AuswaertsEintrag>): List<PlanItem> {
+internal fun scheduledPlanItems(meals: List<Mahlzeit>, awayEntries: List<AuswaertsEintrag>, today: LocalDate): List<PlanItem> {
     val mealsByDate = meals.flatMap { meal ->
         meal.termine.mapNotNull { date -> runCatching { LocalDate.parse(date) }.getOrNull()?.let { it to meal } }
     }.groupBy({ it.first }, { it.second })
     val awayByDate = awayEntries.mapNotNull { entry -> runCatching { LocalDate.parse(entry.datum) }.getOrNull()?.let { it to entry } }.toMap()
     val dates = mealsByDate.keys + awayByDate.keys
-    return dates.groupBy { YearMonth.from(it) }.toSortedMap().flatMap { (month, days) ->
-        listOf(PlanItem.Month(month)) + days.sorted().map { date -> PlanItem.Day(date, mealsByDate[date].orEmpty(), awayByDate[date]) }
+    val currentMonth = YearMonth.from(today)
+    val datesByMonth = dates.groupBy { YearMonth.from(it) }
+    return (datesByMonth.keys + currentMonth).sorted().flatMap { month ->
+        buildList {
+            add(PlanItem.Month(month))
+            var markerAdded = false
+            datesByMonth[month].orEmpty().sorted().forEach { date ->
+                if (month == currentMonth && !markerAdded && !date.isBefore(today)) {
+                    add(PlanItem.TodayMarker(today))
+                    markerAdded = true
+                }
+                add(PlanItem.Day(date, mealsByDate[date].orEmpty(), awayByDate[date]))
+            }
+            if (month == currentMonth && !markerAdded) add(PlanItem.TodayMarker(today))
+        }
     }
 }
 
 @Composable
-private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundation.lazy.LazyListState, edit: (Mahlzeit, LocalDate) -> Unit, editAway: (AuswaertsEintrag) -> Unit, openGallery: (Mahlzeit, String) -> Unit, modifier: Modifier = Modifier) {
+private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundation.lazy.LazyListState, today: LocalDate, edit: (Mahlzeit, LocalDate) -> Unit, editAway: (AuswaertsEintrag) -> Unit, openGallery: (Mahlzeit, String) -> Unit, modifier: Modifier = Modifier) {
     if (items.isEmpty()) {
         Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
             Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -587,22 +617,53 @@ private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundati
         }
     } else {
         LazyColumn(state = state, modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(items, key = { item -> when (item) { is PlanItem.Month -> "month-${item.yearMonth}"; is PlanItem.Day -> "day-${item.date}" } }) { item ->
+            items(items, key = { item -> when (item) { is PlanItem.Month -> "month-${item.yearMonth}"; is PlanItem.TodayMarker -> "today-${item.date}"; is PlanItem.Day -> "day-${item.date}" } }) { item ->
                 when (item) {
                     is PlanItem.Month -> Text(item.yearMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.GERMAN)), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
-                    is PlanItem.Day -> PlanDayRow(item.date, item.meals, item.awayEntry, edit, editAway, openGallery)
+                    is PlanItem.TodayMarker -> TodayMarkerRow(item.date)
+                    is PlanItem.Day -> PlanDayRow(item.date, item.meals, item.awayEntry, item.date == today, edit, editAway, openGallery)
                 }
+            }
+            if (items.none { it is PlanItem.Day }) item(key = "empty-plan") {
+                PlanEmptyState(Modifier.fillMaxWidth())
             }
         }
     }
 }
 
 @Composable
-private fun PlanDayRow(date: LocalDate, meals: List<Mahlzeit>, awayEntry: AuswaertsEintrag?, edit: (Mahlzeit, LocalDate) -> Unit, editAway: (AuswaertsEintrag) -> Unit, openGallery: (Mahlzeit, String) -> Unit) {
+private fun TodayMarkerRow(date: LocalDate) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+        Text(
+            "Heute · ${date.format(DateTimeFormatter.ofPattern("d. MMMM", Locale.GERMAN))}",
+            Modifier.padding(horizontal = 12.dp),
+            color = MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+@Composable
+private fun PlanEmptyState(modifier: Modifier = Modifier) {
+    Surface(modifier, color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
+        Column(Modifier.padding(horizontal = 28.dp, vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(12.dp))
+            Text("Noch nichts geplant", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Plane deine erste Mahlzeit für heute.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun PlanDayRow(date: LocalDate, meals: List<Mahlzeit>, awayEntry: AuswaertsEintrag?, today: Boolean, edit: (Mahlzeit, LocalDate) -> Unit, editAway: (AuswaertsEintrag) -> Unit, openGallery: (Mahlzeit, String) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Column(Modifier.width(54.dp).padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.GERMAN), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = if (date == LocalDate.now()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = if (today) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             awayEntry?.let { AwayEntryCard(it) { editAway(it) } }
