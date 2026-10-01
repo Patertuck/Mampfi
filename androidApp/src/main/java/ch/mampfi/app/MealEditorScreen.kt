@@ -7,6 +7,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -176,6 +178,7 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
     var tags by remember(selectedMeal) { mutableStateOf(selectedMeal?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet()) }
     val existingRating = existingEntry?.bewertung; var ratingOne by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(0)?.toString().orEmpty()) }; var ratingTwo by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(1)?.toString().orEmpty()) }
     var selectedDateEpochDay by rememberSaveable(date) { mutableLongStateOf(date.toEpochDay()) }; var expanded by remember { mutableStateOf(false) }; var confirmDelete by remember { mutableStateOf(false) }; var pendingImage by remember { mutableStateOf<PendingEntryImage?>(null) }
+    var galleryImageUrl by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current; val selectedDate = LocalDate.ofEpochDay(selectedDateEpochDay)
     val blockedDates = awayEntries.mapNotNull { runCatching { LocalDate.parse(it.datum) }.getOrNull() }.toSet()
     val dateBlocked = selectedDate in blockedDates
@@ -205,6 +208,9 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
             if (dateBlocked) Text("An diesem Tag wird auswärts gegessen. Bitte wähle ein anderes Datum.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         } }
         item { FormSection("Bild") {
+            existingEntry?.takeIf { it.bilder.isNotEmpty() }?.let { entry ->
+                ExistingEntryImagePager(entry) { galleryImageUrl = it }
+            }
             pendingImage?.let { image ->
                 AsyncImage(image.preview, "Ausgewähltes Bild", Modifier.fillMaxWidth().height(180.dp).clip(MaterialTheme.shapes.small), contentScale = ContentScale.Crop)
                 Text("Das Bild wird beim Speichern hochgeladen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -220,6 +226,39 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
         if (existingEntry != null) item { Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) { TextButton({ confirmDelete = true }, Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Icon(Icons.Outlined.DeleteOutline, null); Spacer(Modifier.width(4.dp)); Text("Eintrag löschen") } } }
     }
     if (confirmDelete && selectedMeal != null && existingEntry != null) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Eintrag löschen?") }, text = { Text("Nur dieser Termin und seine Bilder werden dauerhaft gelöscht. Beim letzten Eintrag wird auch die Mahlzeit entfernt.") }, confirmButton = { TextButton({ vm.deleteEntry(selectedMeal.id, existingEntry.id); done() }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Löschen") } }, dismissButton = { TextButton({ confirmDelete = false }) { Text("Abbrechen") } })
+    galleryImageUrl?.let { imageUrl ->
+        if (selectedMeal != null && existingEntry != null) {
+            MealImageGallery(selectedMeal.copy(eintraege = listOf(existingEntry)), imageUrl) { galleryImageUrl = null }
+        }
+    }
+}
+
+@Composable
+private fun ExistingEntryImagePager(entry: MahlzeitEintrag, openGallery: (String) -> Unit) {
+    val pagerState = rememberPagerState(pageCount = { entry.bilder.size })
+    Box(Modifier.fillMaxWidth().height(180.dp).clip(MaterialTheme.shapes.small)) {
+        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+            val image = entry.bilder[page]
+            AsyncImage(
+                model = image.url,
+                contentDescription = "Bild ${page + 1} ansehen",
+                modifier = Modifier.fillMaxSize().clickable { openGallery(image.url) },
+                contentScale = ContentScale.Crop,
+            )
+        }
+        Surface(
+            modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
+            color = Color.Black.copy(alpha = 0.68f),
+            contentColor = Color.White,
+            shape = MaterialTheme.shapes.small,
+        ) {
+            Text(
+                "${pagerState.currentPage + 1} / ${entry.bilder.size}",
+                Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+    }
 }
 
 @Composable
