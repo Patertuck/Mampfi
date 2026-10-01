@@ -64,7 +64,7 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 8.dp) {
+            if (currentRoute != "empfehlung/{date}") NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 8.dp) {
                 listOf(
                     Triple("kalender", "Kalender", Icons.Outlined.CalendarMonth),
                     Triple("ideen", "Ideen", Icons.Outlined.Lightbulb),
@@ -86,6 +86,7 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
                 meals = vm.meals.collectAsState().value,
                 awayEntries = vm.awayEntries.collectAsState().value,
                 open = { nav.navigate("bearbeiten/$it") },
+                recommend = { nav.navigate("empfehlung/$it") },
                 edit = { meal, date -> meal.eintraege.firstOrNull { it.datum == date.toString() }?.let { occurrence -> nav.navigate("bearbeiten/$date?meal=${meal.id}&entry=${occurrence.id}") } },
                 createAway = vm::createAwayEntry,
                 updateAway = vm::updateAwayEntry,
@@ -122,6 +123,18 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
                 mealId = entry.arguments?.getString("meal")!!,
                 done = { nav.popBackStack() },
             ) }
+            composable("empfehlung/{date}") { entry ->
+                val date = LocalDate.parse(entry.arguments!!.getString("date")!!)
+                RecommendationScreen(
+                    meals = vm.meals.collectAsState().value,
+                    targetDate = date,
+                    back = { nav.popBackStack() },
+                    schedule = { mealId ->
+                        nav.popBackStack()
+                        nav.navigate("bearbeiten/$date?meal=$mealId")
+                    },
+                )
+            }
             composable("bearbeiten/{date}?meal={meal}&entry={entry}") { entry -> EditScreen(vm, LocalDate.parse(entry.arguments!!.getString("date")!!), entry.arguments?.getString("meal"), entry.arguments?.getString("entry"), appSettings.firstRaterName, appSettings.secondRaterName, vm.awayEntries.collectAsState().value) { nav.popBackStack() } }
         }
     }

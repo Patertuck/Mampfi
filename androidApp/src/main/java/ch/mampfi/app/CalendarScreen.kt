@@ -46,6 +46,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun CalendarScreen(
     meals: List<Mahlzeit>, awayEntries: List<AuswaertsEintrag>, open: (LocalDate) -> Unit,
+    recommend: (LocalDate) -> Unit,
     edit: (Mahlzeit, LocalDate) -> Unit,
     createAway: (AuswaertsEintrag, Boolean, () -> Unit) -> Unit,
     updateAway: (AuswaertsEintrag, Boolean, () -> Unit) -> Unit,
@@ -185,6 +186,12 @@ internal fun CalendarScreen(
             ListItem(
                 headlineContent = { Text("Mahlzeit planen") }, leadingContent = { Icon(Icons.Outlined.Add, null) },
                 modifier = Modifier.clickable { actionDate = null; open(date) },
+            )
+            ListItem(
+                headlineContent = { Text("Empfehlung finden") },
+                supportingContent = { Text("Durch bereits gekochte Mahlzeiten stöbern") },
+                leadingContent = { Icon(Icons.Outlined.Restaurant, null) },
+                modifier = Modifier.clickable { actionDate = null; recommend(date) },
             )
             ListItem(
                 headlineContent = { Text("Auswärts essen") },
