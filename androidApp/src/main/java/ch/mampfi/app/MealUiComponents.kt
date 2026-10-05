@@ -199,3 +199,24 @@ internal fun ConfirmDiscardChangesDialog(
         dismissButton = { TextButton(onClick = keepEditing) { Text("Weiter bearbeiten") } },
     )
 }
+
+@Composable
+internal fun EditorBottomBar(content: @Composable RowScope.() -> Unit) {
+    Surface(shadowElevation = 8.dp, color = MaterialTheme.colorScheme.surface) {
+        Row(
+            modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content,
+        )
+    }
+}
+
+@Composable
+internal fun SaveButtonContent(saving: Boolean, label: String = "Speichern") {
+    if (saving) {
+        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        Spacer(Modifier.width(8.dp))
+    }
+    Text(if (saving) "Wird gespeichert …" else label)
+}

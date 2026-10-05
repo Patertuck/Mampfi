@@ -34,14 +34,14 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
         foregroundRefreshJob = null
     }
     fun refresh() = viewModelScope.launch { repository.refresh().onFailure { _message.emit("Aktualisierung fehlgeschlagen – lokale Daten werden angezeigt.") } }
-    fun createMeal(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null) = viewModelScope.launch {
-        saveWithOptionalImage(repository.createMeal(meal, entry), meal.id, entry.id, image)
+    fun createMeal(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null, onComplete: (Boolean) -> Unit = {}) = viewModelScope.launch {
+        saveWithOptionalImage(repository.createMeal(meal, entry), meal.id, entry.id, image, onComplete)
     }
-    fun saveIdea(meal: Mahlzeit, isNew: Boolean, onSuccess: () -> Unit) = viewModelScope.launch {
+    fun saveIdea(meal: Mahlzeit, isNew: Boolean, onComplete: (Boolean) -> Unit) = viewModelScope.launch {
         val result = if (isNew) repository.createIdea(meal) else repository.updateIdea(meal)
         result
-            .onSuccess { _message.emit("Idee gespeichert."); onSuccess() }
-            .onFailure { _message.emit("Speichern fehlgeschlagen.") }
+            .onSuccess { _message.emit("Idee gespeichert."); onComplete(true) }
+            .onFailure { _message.emit("Speichern fehlgeschlagen."); onComplete(false) }
     }
     fun deleteIdea(mealId: String, onSuccess: () -> Unit) = viewModelScope.launch {
         repository.deleteIdea(mealId)
@@ -53,15 +53,15 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
             .onSuccess { _message.emit(if (isIdea) "Zu Ideen hinzugefügt." else "Aus Ideen entfernt."); onSuccess() }
             .onFailure { _message.emit("Speichern fehlgeschlagen.") }
     }
-    fun updateMeal(meal: Mahlzeit, onSuccess: () -> Unit) = viewModelScope.launch {
+    fun updateMeal(meal: Mahlzeit, onComplete: (Boolean) -> Unit) = viewModelScope.launch {
         repository.updateMeal(meal)
-            .onSuccess { _message.emit("Mahlzeit gespeichert."); onSuccess() }
-            .onFailure { _message.emit("Speichern fehlgeschlagen.") }
+            .onSuccess { _message.emit("Mahlzeit gespeichert."); onComplete(true) }
+            .onFailure { _message.emit("Speichern fehlgeschlagen."); onComplete(false) }
     }
-    fun createEntry(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null) = viewModelScope.launch {
-        saveWithOptionalImage(repository.createEntry(meal, entry), meal.id, entry.id, image)
+    fun createEntry(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null, onComplete: (Boolean) -> Unit = {}) = viewModelScope.launch {
+        saveWithOptionalImage(repository.createEntry(meal, entry), meal.id, entry.id, image, onComplete)
     }
-    fun updateEntry(meal: Mahlzeit, entry: MahlzeitEintrag) = viewModelScope.launch { repository.updateEntry(meal, entry).notifySave() }
+    fun updateEntry(meal: Mahlzeit, entry: MahlzeitEintrag, onComplete: (Boolean) -> Unit = {}) = viewModelScope.launch { repository.updateEntry(meal, entry).notifySave(onComplete) }
     fun deleteEntry(mealId: String, entryId: String) = viewModelScope.launch { repository.deleteEntry(mealId, entryId).onSuccess { _message.emit("Eintrag gelöscht.") }.onFailure { _message.emit("Löschen fehlgeschlagen.") } }
     fun createAwayEntry(entry: AuswaertsEintrag, replaceMeals: Boolean, onSuccess: () -> Unit) = viewModelScope.launch {
         repository.createAwayEntry(entry, replaceMeals)
@@ -85,13 +85,15 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
         }
         repository.upload(mealId, entryId, name, input).onFailure { _message.emit("Bild-Upload fehlgeschlagen.") }
     }
-    private suspend fun saveWithOptionalImage(save: Result<Unit>, mealId: String, entryId: String, image: PendingImageUpload?) {
+    private suspend fun saveWithOptionalImage(save: Result<Unit>, mealId: String, entryId: String, image: PendingImageUpload?, onComplete: (Boolean) -> Unit) {
         if (save.isFailure) {
             _message.emit("Speichern fehlgeschlagen.")
+            onComplete(false)
             return
         }
         if (image == null) {
             _message.emit("Mahlzeit gespeichert.")
+            onComplete(true)
             return
         }
         val upload = runCatching(image.openStream).fold(
@@ -101,6 +103,13 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
         upload
             .onSuccess { _message.emit("Mahlzeit und Bild gespeichert.") }
             .onFailure { _message.emit("Mahlzeit gespeichert, Bild-Upload fehlgeschlagen.") }
+        onComplete(true)
     }
-    private suspend fun Result<Unit>.notifySave() = onSuccess { _message.emit("Mahlzeit gespeichert.") }.onFailure { _message.emit("Speichern fehlgeschlagen.") }
+    private suspend fun Result<Unit>.notifySave(onComplete: (Boolean) -> Unit) = onSuccess {
+        _message.emit("Mahlzeit gespeichert.")
+        onComplete(true)
+    }.onFailure {
+        _message.emit("Speichern fehlgeschlagen.")
+        onComplete(false)
+    }
 }

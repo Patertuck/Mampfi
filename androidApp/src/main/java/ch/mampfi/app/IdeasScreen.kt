@@ -130,11 +130,14 @@ internal fun IdeaEditScreen(vm: MealViewModel, mealId: String?, schedule: (Strin
     }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
+    var validationRequested by remember { mutableStateOf(false) }
+    var savingAction by remember { mutableStateOf<IdeaSaveAction?>(null) }
     val initialTags = remember(selectedIdea) {
         selectedIdea?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet()
     }
     val dirty = name != selectedIdea?.name.orEmpty() || link != selectedIdea?.rezeptLink.orEmpty() ||
         note != selectedIdea?.notiz.orEmpty() || tags != initialTags
+    val validation = validateMealForm(name)
     fun requestBack() { if (dirty) confirmDiscard = true else done() }
     BackHandler(enabled = dirty) { confirmDiscard = true }
     fun ideaOrNull(): Mahlzeit? {
@@ -147,12 +150,43 @@ internal fun IdeaEditScreen(vm: MealViewModel, mealId: String?, schedule: (Strin
             istIdee = true,
         )
     }
+    fun save(action: IdeaSaveAction) {
+        validationRequested = true
+        if (!validation.isValid) return
+        val idea = ideaOrNull() ?: return
+        savingAction = action
+        vm.saveIdea(idea, isNew) { success ->
+            savingAction = null
+            if (success) {
+                if (action == IdeaSaveAction.SCHEDULE) schedule(idea.id) else done()
+            }
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(if (isNew) "Neue Idee" else "Idee bearbeiten", maxLines = 1) },
                 navigationIcon = { IconButton(onClick = ::requestBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Zurück") } },
             )
+        },
+        bottomBar = {
+            EditorBottomBar {
+                OutlinedButton(
+                    onClick = { save(IdeaSaveAction.SCHEDULE) },
+                    enabled = savingAction == null,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (savingAction == IdeaSaveAction.SCHEDULE) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Outlined.CalendarMonth, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (savingAction == IdeaSaveAction.SCHEDULE) "Speichert …" else "Einplanen")
+                }
+                Button(
+                    onClick = { save(IdeaSaveAction.SAVE) },
+                    enabled = savingAction == null,
+                    modifier = Modifier.weight(1f),
+                ) { SaveButtonContent(savingAction == IdeaSaveAction.SAVE) }
+            }
         },
     ) { scaffoldPadding -> LazyColumn(
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding).imePadding(),
@@ -176,6 +210,8 @@ internal fun IdeaEditScreen(vm: MealViewModel, mealId: String?, schedule: (Strin
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    isError = validationRequested && validation.nameError != null,
+                    supportingText = if (validationRequested && validation.nameError != null) {{ Text(validation.nameError!!) }} else null,
                 )
                 RecipeLinkField(link, selectedIdea != null) { link = it }
                 OutlinedTextField(
@@ -193,22 +229,6 @@ internal fun IdeaEditScreen(vm: MealViewModel, mealId: String?, schedule: (Strin
             FormSection("Eigenschaften") {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Tag.entries.forEach { tag -> FilterChip(tag in tags, { tags = tags.toggleMealTag(tag) }, { Text(tag.label) }) }
-                }
-            }
-        }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { ideaOrNull()?.let { idea -> vm.saveIdea(idea, isNew) { done() } } },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Speichern") }
-                OutlinedButton(
-                    onClick = { ideaOrNull()?.let { idea -> vm.saveIdea(idea, isNew) { schedule(idea.id) } } },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Outlined.CalendarMonth, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Einplanen")
                 }
             }
         }
@@ -238,3 +258,5 @@ internal fun IdeaEditScreen(vm: MealViewModel, mealId: String?, schedule: (Strin
     )
     ConfirmDiscardChangesDialog(confirmDiscard, { confirmDiscard = false }, done)
 }
+
+private enum class IdeaSaveAction { SAVE, SCHEDULE }

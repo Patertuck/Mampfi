@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import ch.mampfi.app.data.*
 import coil3.compose.AsyncImage
@@ -52,7 +53,10 @@ internal fun SharedMealEditScreen(vm: MealViewModel, mealId: String, done: () ->
     var note by remember(meal.id) { mutableStateOf(meal.notiz.orEmpty()) }
     var tags by remember(meal.id) { mutableStateOf(meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags()) }
     var confirmDiscard by remember { mutableStateOf(false) }
+    var validationRequested by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
     val initialTags = remember(meal.id) { meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags() }
+    val validation = validateMealForm(name)
     val dirty = name != meal.name || link != meal.rezeptLink.orEmpty() || note != meal.notiz.orEmpty() || tags != initialTags
     fun requestBack() { if (dirty) confirmDiscard = true else done() }
     BackHandler(enabled = dirty) { confirmDiscard = true }
@@ -62,6 +66,30 @@ internal fun SharedMealEditScreen(vm: MealViewModel, mealId: String, done: () ->
                 title = { Text("Mahlzeit bearbeiten", maxLines = 1) },
                 navigationIcon = { IconButton(onClick = ::requestBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Zurück") } },
             )
+        },
+        bottomBar = {
+            EditorBottomBar {
+                Button(
+                    onClick = {
+                        validationRequested = true
+                        if (!validation.isValid) return@Button
+                        saving = true
+                        vm.updateMeal(
+                            meal.copy(
+                                name = name.trim(),
+                                rezeptLink = link.trim().ifBlank { null },
+                                tags = tags.normalizedDietTags().map { it.name },
+                                notiz = note.trim().ifBlank { null },
+                            ),
+                        ) { success ->
+                            saving = false
+                            if (success) done()
+                        }
+                    },
+                    enabled = !saving,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { SaveButtonContent(saving) }
+            }
         },
     ) { scaffoldPadding -> LazyColumn(
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding).imePadding(),
@@ -77,6 +105,8 @@ internal fun SharedMealEditScreen(vm: MealViewModel, mealId: String, done: () ->
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    isError = validationRequested && validation.nameError != null,
+                    supportingText = if (validationRequested && validation.nameError != null) {{ Text(validation.nameError!!) }} else null,
                 )
                 RecipeLinkField(link, true) { link = it }
                 OutlinedTextField(
@@ -96,23 +126,6 @@ internal fun SharedMealEditScreen(vm: MealViewModel, mealId: String, done: () ->
                     Tag.entries.forEach { tag -> FilterChip(tag in tags, { tags = tags.toggleMealTag(tag) }, { Text(tag.label) }) }
                 }
             }
-        }
-        item {
-            Button(
-                onClick = {
-                    if (name.isBlank()) return@Button
-                    vm.updateMeal(
-                        meal.copy(
-                            name = name.trim(),
-                            rezeptLink = link.trim().ifBlank { null },
-                            tags = tags.normalizedDietTags().map { it.name },
-                            notiz = note.trim().ifBlank { null },
-                        ),
-                        done,
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Speichern") }
         }
     } }
     ConfirmDiscardChangesDialog(confirmDiscard, { confirmDiscard = false }, done)
@@ -187,9 +200,11 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
     val existingRating = existingEntry?.bewertung; var ratingOne by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(0)?.toString().orEmpty()) }; var ratingTwo by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(1)?.toString().orEmpty()) }
     var selectedDateEpochDay by rememberSaveable(date) { mutableLongStateOf(date.toEpochDay()) }; var expanded by remember { mutableStateOf(false) }; var confirmDelete by remember { mutableStateOf(false) }; var pendingImage by remember { mutableStateOf<PendingEntryImage?>(null) }
     var galleryImageUrl by remember { mutableStateOf<String?>(null) }; var confirmDiscard by remember { mutableStateOf(false) }
+    var validationRequested by remember { mutableStateOf(false) }; var saving by remember { mutableStateOf(false) }
     val context = LocalContext.current; val selectedDate = LocalDate.ofEpochDay(selectedDateEpochDay)
     val blockedDates = awayEntries.mapNotNull { runCatching { LocalDate.parse(it.datum) }.getOrNull() }.toSet()
     val dateBlocked = selectedDate in blockedDates
+    val validation = validateMealForm(name, ratingOne, ratingTwo)
     val initialTags = remember(selectedMeal) { selectedMeal?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet() }
     val dirty = name != selectedMeal?.name.orEmpty() || link != selectedMeal?.rezeptLink.orEmpty() ||
         note != selectedMeal?.notiz.orEmpty() || tags != initialTags || selectedDate != date ||
@@ -205,6 +220,21 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
     }
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let { selectedImage({ context.contentResolver.openInputStream(it)!! }, "galerie.jpg", it) } }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? -> bitmap?.let { b -> val bytes = ByteArrayOutputStream().also { b.compress(Bitmap.CompressFormat.JPEG, 90, it) }.toByteArray(); selectedImage({ ByteArrayInputStream(bytes) }, "kamera.jpg", b) } }
+    fun save() {
+        validationRequested = true
+        if (!validation.isValid || dateBlocked) return
+        val base = selectedMeal ?: chosen ?: Mahlzeit(name = name.trim())
+        val meal = base.copy(name = name.trim(), rezeptLink = link.trim().ifBlank { null }, tags = tags.normalizedDietTags().map { it.name }, notiz = note.trim().ifBlank { null })
+        val rating = validation.ratings?.let(::MahlzeitBewertung)
+        val occurrence = existingEntry?.copy(datum = selectedDate.toString(), bewertung = rating) ?: MahlzeitEintrag(datum = selectedDate.toString(), bewertung = rating)
+        saving = true
+        val completed: (Boolean) -> Unit = { success -> saving = false; if (success) done() }
+        when {
+            existingEntry != null -> vm.updateEntry(meal, occurrence, completed)
+            selectedMeal != null || chosen != null -> vm.createEntry(meal, occurrence, pendingImage?.upload, completed)
+            else -> vm.createMeal(meal, occurrence, pendingImage?.upload, completed)
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -212,18 +242,25 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
                 navigationIcon = { IconButton(onClick = ::requestBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Zurück") } },
             )
         },
+        bottomBar = {
+            EditorBottomBar {
+                Button(onClick = ::save, enabled = !saving && !dateBlocked, modifier = Modifier.fillMaxWidth()) {
+                    SaveButtonContent(saving)
+                }
+            }
+        },
     ) { scaffoldPadding -> LazyColumn(
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding).imePadding(),
         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) { Column(Modifier.padding(20.dp)) { Text(when { existingEntry != null -> "Eintrag bearbeiten"; selectedMeal?.istIdee == true -> "Mahlzeit planen"; else -> "Neues Essen" }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(selectedDate.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM yyyy", Locale.GERMAN)), color = MaterialTheme.colorScheme.onPrimaryContainer) } } }
-        item { FormSection("Mahlzeit") { OutlinedTextField(name, { value -> name = if ('\n' in value || '\r' in value) normalizePastedMealName(value) else value; expanded = name.isNotBlank() && existingEntry == null }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)); if (expanded) meals.filter { it.name.contains(name, true) }.take(5).forEach { meal -> Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { chosen = meal; name = meal.name; link = meal.rezeptLink.orEmpty(); note = meal.notiz.orEmpty(); tags = meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags(); expanded = false }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { meal.letztesBild()?.let { AsyncImage(it, null, Modifier.size(42.dp).clip(MaterialTheme.shapes.small)) }; Column(Modifier.padding(start = 10.dp)) { Text(meal.name, fontWeight = FontWeight.Bold); Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "Noch nicht bewertet", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }; RecipeLinkField(link, selectedMeal != null || chosen != null) { link = it }; OutlinedTextField(note, { note = it }, label = { Text("Notiz (optional)") }, placeholder = { Text("z. B. Änderungen am Rezept") }, modifier = Modifier.fillMaxWidth(), minLines = 3, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)) } }
+        item { FormSection("Mahlzeit") { OutlinedTextField(name, { value -> name = if ('\n' in value || '\r' in value) normalizePastedMealName(value) else value; expanded = name.isNotBlank() && existingEntry == null }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), isError = validationRequested && validation.nameError != null, supportingText = if (validationRequested && validation.nameError != null) {{ Text(validation.nameError!!) }} else null); if (expanded) meals.filter { it.name.contains(name, true) }.take(5).forEach { meal -> Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { chosen = meal; name = meal.name; link = meal.rezeptLink.orEmpty(); note = meal.notiz.orEmpty(); tags = meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags(); expanded = false }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { meal.letztesBild()?.let { AsyncImage(it, null, Modifier.size(42.dp).clip(MaterialTheme.shapes.small)) }; Column(Modifier.padding(start = 10.dp)) { Text(meal.name, fontWeight = FontWeight.Bold); Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "Noch nicht bewertet", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }; RecipeLinkField(link, selectedMeal != null || chosen != null) { link = it }; OutlinedTextField(note, { note = it }, label = { Text("Notiz (optional)") }, placeholder = { Text("z. B. Änderungen am Rezept") }, modifier = Modifier.fillMaxWidth(), minLines = 3, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)) } }
         item { FormSection("Eigenschaften") { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Tag.entries.forEach { tag -> FilterChip(tag in tags, { tags = tags.toggleMealTag(tag) }, { Text(tag.label) }) } } } }
         item { FormSection("Bewertung") {
             Text("Wenn ihr das Essen bewertet, gebt beide Bewertungen ein.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            RaterScoreField(ratingOne, { ratingOne = it }, firstRaterName, FirstRaterColor)
-            RaterScoreField(ratingTwo, { ratingTwo = it }, secondRaterName, SecondRaterColor)
+            RaterScoreField(ratingOne, { ratingOne = it }, firstRaterName, FirstRaterColor, if (validationRequested) validation.firstRatingError else null)
+            RaterScoreField(ratingTwo, { ratingTwo = it }, secondRaterName, SecondRaterColor, if (validationRequested) validation.secondRatingError else null)
         } }
         item { FormSection("Termin") {
             MealDateSelector(selectedDate, blockedDates) { selectedDateEpochDay = it.toEpochDay() }
@@ -241,9 +278,6 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
                 OutlinedButton({ gallery.launch("image/*") }, Modifier.weight(1f)) { Icon(Icons.Outlined.Image, null); Spacer(Modifier.width(6.dp)); Text("Galerie") }
                 OutlinedButton({ camera.launch(null) }, Modifier.weight(1f)) { Icon(Icons.Outlined.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Kamera") }
             }
-        } }
-        item { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { val ratingTexts = listOf(ratingOne, ratingTwo); val ratingsProvided = ratingTexts.any { it.isNotBlank() }; val validRatings = ratingTexts.map { it.replace(',', '.').toDoubleOrNull()?.takeIf { value -> value in 1.0..10.0 } }; if (name.isBlank() || dateBlocked || (ratingsProvided && validRatings.any { it == null })) return@Button; val base = selectedMeal ?: chosen ?: Mahlzeit(name = name.trim()); val meal = base.copy(name = name.trim(), rezeptLink = link.trim().ifBlank { null }, tags = tags.normalizedDietTags().map { it.name }, notiz = note.trim().ifBlank { null }); val rating = if (ratingsProvided) MahlzeitBewertung(validRatings.filterNotNull()) else null; val occurrence = existingEntry?.copy(datum = selectedDate.toString(), bewertung = rating) ?: MahlzeitEintrag(datum = selectedDate.toString(), bewertung = rating); when { existingEntry != null -> vm.updateEntry(meal, occurrence); selectedMeal != null || chosen != null -> vm.createEntry(meal, occurrence, pendingImage?.upload); else -> vm.createMeal(meal, occurrence, pendingImage?.upload) }; done() }, enabled = !dateBlocked, modifier = Modifier.fillMaxWidth()) { Text("Speichern") }
         } }
         if (existingEntry != null) item { Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) { TextButton({ confirmDelete = true }, Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Icon(Icons.Outlined.DeleteOutline, null); Spacer(Modifier.width(4.dp)); Text("Eintrag löschen") } } }
     } }
@@ -285,13 +319,16 @@ private fun ExistingEntryImagePager(entry: MahlzeitEintrag, openGallery: (String
 }
 
 @Composable
-private fun RaterScoreField(value: String, update: (String) -> Unit, name: String, accent: Color) {
+private fun RaterScoreField(value: String, update: (String) -> Unit, name: String, accent: Color, error: String?) {
     OutlinedTextField(
         value = value,
         onValueChange = update,
         label = { Text("$name (1,00–10,00)") },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
+        isError = error != null,
+        supportingText = if (error != null) {{ Text(error) }} else null,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = accent,
             unfocusedBorderColor = accent.copy(alpha = 0.7f),
