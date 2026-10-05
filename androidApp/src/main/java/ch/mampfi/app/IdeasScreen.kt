@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Search
@@ -36,12 +37,12 @@ import java.util.Locale
 
 @Composable
 internal fun IdeasScreen(ideas: List<Mahlzeit>, add: () -> Unit, edit: (Mahlzeit) -> Unit) {
-    var selected by remember { mutableStateOf(setOf<Tag>()) }
+    var selectedTagNames by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var query by rememberSaveable { mutableStateOf("") }
-    val normalizedQuery = query.trim()
-    val filtered = ideas.filter { idea ->
-        idea.name.contains(normalizedQuery, ignoreCase = true) && selected.all(idea::hatTag)
-    }.sortedBy { it.name.lowercase(Locale.GERMAN) }
+    var filterSheetVisible by rememberSaveable { mutableStateOf(false) }
+    val selected = selectedTagNames.mapNotNull { name -> Tag.entries.find { it.name == name } }.toSet()
+    val filtered = filterMeals(ideas, query, selected).sortedBy { it.name.lowercase(Locale.GERMAN) }
+    fun updateSelected(tags: Set<Tag>) { selectedTagNames = tags.map { it.name }.sorted() }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
             Text("Ideen", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -58,8 +59,24 @@ internal fun IdeasScreen(ideas: List<Mahlzeit>, add: () -> Unit, edit: (Mahlzeit
                 singleLine = true,
             )
             Spacer(Modifier.height(12.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Tag.entries.forEach { tag -> FilterChip(tag in selected, { selected = selected.toggle(tag) }, { Text(tag.label) }) }
+            FilterChip(
+                selected = selected.isNotEmpty(),
+                onClick = { filterSheetVisible = true },
+                label = { Text(if (selected.isEmpty()) "Filtern" else "Filter (${selected.size})") },
+                leadingIcon = { Icon(Icons.Outlined.FilterAlt, contentDescription = null) },
+            )
+            if (selected.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    selected.forEach { tag ->
+                        InputChip(
+                            selected = true,
+                            onClick = { updateSelected(selected - tag) },
+                            label = { Text(tag.label) },
+                            trailingIcon = { Icon(Icons.Outlined.Clear, contentDescription = "${tag.label} entfernen", Modifier.size(18.dp)) },
+                        )
+                    }
+                }
             }
             Spacer(Modifier.height(14.dp))
             if (filtered.isEmpty()) {
@@ -69,6 +86,7 @@ internal fun IdeasScreen(ideas: List<Mahlzeit>, add: () -> Unit, edit: (Mahlzeit
                         Spacer(Modifier.height(12.dp))
                         Text(if (ideas.isEmpty()) "Noch keine Ideen" else "Keine passenden Ideen", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                         Text(if (ideas.isEmpty()) "Speichert euer nächstes Wunschgericht." else "Passe deine Suche oder Filter an.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (ideas.isNotEmpty()) TextButton(onClick = { query = ""; updateSelected(emptySet()) }) { Text("Suche und Filter zurücksetzen") }
                     }
                 }
             } else {
@@ -87,6 +105,29 @@ internal fun IdeasScreen(ideas: List<Mahlzeit>, add: () -> Unit, edit: (Mahlzeit
             Icon(Icons.Outlined.Add, contentDescription = "Idee hinzufügen")
         }
     }
+    if (filterSheetVisible) IdeasFilterSheet(
+        selected = selected,
+        apply = { updateSelected(it); filterSheetVisible = false },
+        dismiss = { filterSheetVisible = false },
+    )
+}
+
+@Composable
+private fun IdeasFilterSheet(selected: Set<Tag>, apply: (Set<Tag>) -> Unit, dismiss: () -> Unit) {
+    var editing by remember(selected) { mutableStateOf(selected) }
+    MampfiFilterDialog(
+        title = "Ideen filtern",
+        dismiss = dismiss,
+        content = {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Tag.entries.forEach { tag -> FilterChip(tag in editing, { editing = editing.toggle(tag) }, { Text(tag.label) }) }
+            }
+        },
+        actions = {
+            TextButton(onClick = { apply(emptySet()) }, modifier = Modifier.weight(1f)) { Text("Zurücksetzen") }
+            Button(onClick = { apply(editing) }, modifier = Modifier.weight(1f)) { Text("Anwenden") }
+        },
+    )
 }
 
 @Composable
