@@ -23,15 +23,22 @@ private val MampfiDarkColors = darkColorScheme(
 )
 
 private val MampfiLightColors = lightColorScheme(
-    primary = Color(0xFF355E3B), onPrimary = Color.White,
-    primaryContainer = Color(0xFFD7E8D2), onPrimaryContainer = Color(0xFF102117),
-    secondary = Color(0xFF765B1B), onSecondary = Color.White,
-    secondaryContainer = Color(0xFFF9E3AA), onSecondaryContainer = Color(0xFF271A00),
-    tertiary = Color(0xFF79536A), onTertiary = Color.White,
-    background = Color(0xFFF7F4EA), onBackground = Color(0xFF192018),
-    surface = Color(0xFFFFFCF4), onSurface = Color(0xFF192018),
-    surfaceVariant = Color(0xFFE1E8DC), onSurfaceVariant = Color(0xFF424940),
-    outline = Color(0xFF737A70), error = Color(0xFFBA1A1A), onError = Color.White,
+    primary = Color(0xFF2F6B45), onPrimary = Color.White,
+    primaryContainer = Color(0xFFD6ECDD), onPrimaryContainer = Color(0xFF0D2B19),
+    secondary = Color(0xFF536A56), onSecondary = Color.White,
+    secondaryContainer = Color(0xFFDCE8DC), onSecondaryContainer = Color(0xFF15291A),
+    tertiary = Color(0xFF9A5545), onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFFFDBD2), onTertiaryContainer = Color(0xFF3B0903),
+    background = Color(0xFFEFF5ED), onBackground = Color(0xFF172019),
+    surface = Color(0xFFFBFDF9), onSurface = Color(0xFF172019),
+    surfaceVariant = Color(0xFFDEE8DE), onSurfaceVariant = Color(0xFF3F4941),
+    surfaceDim = Color(0xFFD8DED6), surfaceBright = Color(0xFFFBFDF9),
+    surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFF5F9F3),
+    surfaceContainer = Color(0xFFEDF3EB), surfaceContainerHigh = Color(0xFFE7EDE5),
+    surfaceContainerHighest = Color(0xFFE1E8DF),
+    outline = Color(0xFF6F7A71), outlineVariant = Color(0xFFBECABD),
+    inverseSurface = Color(0xFF2C322D), inverseOnSurface = Color(0xFFF0F2ED), inversePrimary = Color(0xFFA8D5B4),
+    error = Color(0xFFBA1A1A), onError = Color.White,
     errorContainer = Color(0xFFFFDAD6), onErrorContainer = Color(0xFF410002),
 )
 
