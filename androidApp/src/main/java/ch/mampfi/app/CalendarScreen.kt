@@ -12,11 +12,15 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.ChevronLeft
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.RestaurantMenu
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -40,7 +44,6 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @Composable
@@ -64,7 +67,7 @@ internal fun CalendarScreen(
     )
     var calendarView by rememberSaveable { mutableStateOf("WEEK") }
     var selectedWeekDate by rememberSaveable { mutableStateOf(today.toString()) }
-    var receivedInitialWeek by remember { mutableStateOf(false) }
+    var showWeekPicker by rememberSaveable { mutableStateOf(false) }
     var planInitialised by rememberSaveable { mutableStateOf(false) }
     var galleryMeal by remember { mutableStateOf<Mahlzeit?>(null) }
     var galleryImageUrl by remember { mutableStateOf<String?>(null) }
@@ -74,12 +77,11 @@ internal fun CalendarScreen(
     val planListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val swipeThreshold = with(LocalDensity.current) { 64.dp.toPx() }
-    LaunchedEffect(weekState) {
-        snapshotFlow { weekState.firstVisibleWeek.days.first().date }
-            .distinctUntilChanged()
-            .collect { monday ->
-                if (receivedInitialWeek) selectedWeekDate = monday.toString() else receivedInitialWeek = true
-            }
+    fun navigateToWeek(date: LocalDate) {
+        scope.launch {
+            weekState.animateScrollToWeek(date)
+            selectedWeekDate = date.toString()
+        }
     }
     val selectedDate = LocalDate.parse(selectedWeekDate)
     val planItems = remember(meals, awayEntries, today) { scheduledPlanItems(meals, awayEntries, today) }
@@ -106,8 +108,7 @@ internal fun CalendarScreen(
                     else -> 0L
                 }
                 if (weekOffset != 0L) {
-                    val target = weekState.firstVisibleWeek.days.first().date.plusWeeks(weekOffset)
-                    if (target in calendarStartDate..calendarEndDate) scope.launch { weekState.animateScrollToWeek(target) }
+                    adjacentWeekDate(weekState.firstVisibleWeek.days.first().date, weekOffset, calendarStartDate, calendarEndDate)?.let(::navigateToWeek)
                 }
                 dragDistance = 0f
             },
@@ -137,8 +138,7 @@ internal fun CalendarScreen(
             Spacer(Modifier.width(4.dp))
             IconButton(onClick = {
                 if (calendarView == "WEEK") {
-                    selectedWeekDate = today.toString()
-                    scope.launch { weekState.animateScrollToWeek(today) }
+                    navigateToWeek(today)
                 } else {
                     scope.launch { planListState.animateScrollToItem(todayMarkerIndex) }
                 }
@@ -152,7 +152,18 @@ internal fun CalendarScreen(
                 modifier = Modifier.height(158.dp),
                 state = weekState,
                 userScrollEnabled = false,
-                weekHeader = { week -> CalendarWeekHeader(week.days.first().date, week.days.last().date) },
+                weekHeader = { week ->
+                    val weekStart = week.days.first().date
+                    CalendarWeekHeader(
+                        start = weekStart,
+                        end = week.days.last().date,
+                        previousEnabled = adjacentWeekDate(weekStart, -1, calendarStartDate, calendarEndDate) != null,
+                        nextEnabled = adjacentWeekDate(weekStart, 1, calendarStartDate, calendarEndDate) != null,
+                        previous = { adjacentWeekDate(weekStart, -1, calendarStartDate, calendarEndDate)?.let(::navigateToWeek) },
+                        next = { adjacentWeekDate(weekStart, 1, calendarStartDate, calendarEndDate)?.let(::navigateToWeek) },
+                        chooseDate = { showWeekPicker = true },
+                    )
+                },
                 dayContent = { day -> WeekCalendarCell(day.date, meals.count { day.date.toString() in it.termine }, awayEntries.any { it.datum == day.date.toString() }, day.date == selectedDate, day.date == today) { selectedWeekDate = day.date.toString() } },
             )
             Spacer(Modifier.height(12.dp))
@@ -166,39 +177,80 @@ internal fun CalendarScreen(
                     openGallery = { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl },
                     modifier = Modifier.fillMaxSize(),
                 )
-                if (awayEntries.none { it.datum == selectedDate.toString() }) FloatingActionButton(
-                    onClick = { actionDate = selectedDate }, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                ) { Icon(Icons.Outlined.Add, contentDescription = "Eintrag hinzufügen") }
+                if (awayEntries.none { it.datum == selectedDate.toString() }) ExtendedFloatingActionButton(
+                    onClick = { actionDate = selectedDate }, modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
+                    icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                    text = { Text("Planen") },
+                )
             }
         } else {
             Box(Modifier.weight(1f)) {
                 PlanSchedule(planItems, planListState, today, edit, { editingAway = it; creatingAway = false }, { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl }, Modifier.fillMaxSize())
-                if (awayEntries.none { it.datum == today.toString() }) FloatingActionButton(
-                    onClick = { actionDate = today }, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                ) { Icon(Icons.Outlined.Add, contentDescription = "Eintrag hinzufügen") }
+                if (awayEntries.none { it.datum == today.toString() }) ExtendedFloatingActionButton(
+                    onClick = { actionDate = today }, modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
+                    icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                    text = { Text("Planen") },
+                )
             }
         }
     }
+    if (showWeekPicker) {
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = selectedDate.toDatePickerMillis(),
+            selectableDates = object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+                    datePickerMillisToLocalDate(utcTimeMillis) in calendarStartDate..calendarEndDate
+            },
+        )
+        DatePickerDialog(
+            onDismissRequest = { showWeekPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let(::datePickerMillisToLocalDate)?.let(::navigateToWeek)
+                    showWeekPicker = false
+                }) { Text("Anzeigen") }
+            },
+            dismissButton = { TextButton(onClick = { showWeekPicker = false }) { Text("Abbrechen") } },
+        ) { DatePicker(state = pickerState) }
+    }
     galleryMeal?.let { meal -> MealImageGallery(meal, galleryImageUrl) { galleryMeal = null; galleryImageUrl = null } }
     actionDate?.let { date ->
-        ModalBottomSheet(onDismissRequest = { actionDate = null }) {
-            Text("Was möchtet ihr planen?", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            ListItem(
-                headlineContent = { Text("Mahlzeit planen") }, leadingContent = { Icon(Icons.Outlined.Add, null) },
-                modifier = Modifier.clickable { actionDate = null; open(date) },
-            )
-            ListItem(
-                headlineContent = { Text("Empfehlung finden") },
-                supportingContent = { Text("Durch bereits gekochte Mahlzeiten stöbern") },
-                leadingContent = { Icon(Icons.Outlined.Restaurant, null) },
-                modifier = Modifier.clickable { actionDate = null; recommend(date) },
-            )
-            ListItem(
-                headlineContent = { Text("Auswärts essen") },
-                leadingContent = { Icon(Icons.Outlined.Restaurant, null) },
-                modifier = Modifier.clickable { actionDate = null; editingAway = AuswaertsEintrag(datum = date.toString()); creatingAway = true },
-            )
-            Spacer(Modifier.height(24.dp))
+        ModalBottomSheet(
+            onDismissRequest = { actionDate = null },
+            containerColor = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.onBackground,
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("Was möchtet ihr planen?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM", Locale.GERMAN)),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                PlanningActionItem(
+                    title = "Mahlzeit planen",
+                    icon = Icons.Outlined.RestaurantMenu,
+                    tint = MaterialTheme.colorScheme.primary,
+                ) { actionDate = null; open(date) }
+                PlanningActionItem(
+                    title = "Empfehlung finden",
+                    icon = Icons.Outlined.AutoAwesome,
+                    tint = MaterialTheme.colorScheme.secondary,
+                ) { actionDate = null; recommend(date) }
+                PlanningActionItem(
+                    title = "Auswärts essen",
+                    icon = Icons.Outlined.Restaurant,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                ) {
+                    actionDate = null
+                    editingAway = AuswaertsEintrag(datum = date.toString())
+                    creatingAway = true
+                }
+            }
         }
     }
     editingAway?.let { entry ->
@@ -218,13 +270,60 @@ internal fun CalendarScreen(
 }
 
 @Composable
-private fun CalendarWeekHeader(start: LocalDate, end: LocalDate) {
+private fun PlanningActionItem(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    click: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable(onClick = click),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = CircleShape, color = tint.copy(alpha = 0.14f), contentColor = tint) {
+                Icon(icon, contentDescription = null, modifier = Modifier.padding(10.dp).size(24.dp))
+            }
+            Text(title, Modifier.weight(1f).padding(horizontal = 14.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun CalendarWeekHeader(
+    start: LocalDate,
+    end: LocalDate,
+    previousEnabled: Boolean,
+    nextEnabled: Boolean,
+    previous: () -> Unit,
+    next: () -> Unit,
+    chooseDate: () -> Unit,
+) {
     Column(Modifier.padding(bottom = 8.dp)) {
-        Text("${start.format(DateTimeFormatter.ofPattern("d. MMMM", Locale.GERMAN))} – ${end.format(DateTimeFormatter.ofPattern("d. MMMM yyyy", Locale.GERMAN))}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = previous, enabled = previousEnabled) {
+                Icon(Icons.Outlined.ChevronLeft, contentDescription = "Vorherige Woche")
+            }
+            TextButton(onClick = chooseDate, modifier = Modifier.weight(1f)) {
+                Text(
+                    "${start.format(DateTimeFormatter.ofPattern("d. MMMM", Locale.GERMAN))} – ${end.format(DateTimeFormatter.ofPattern("d. MMMM yyyy", Locale.GERMAN))}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            IconButton(onClick = next, enabled = nextEnabled) {
+                Icon(Icons.Outlined.ChevronRight, contentDescription = "Nächste Woche")
+            }
+        }
         Row(Modifier.fillMaxWidth()) { listOf("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").forEach { day -> Text(day, Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary) } }
     }
 }
+
+internal fun adjacentWeekDate(currentWeekStart: LocalDate, offset: Long, minimum: LocalDate, maximum: LocalDate): LocalDate? =
+    currentWeekStart.plusWeeks(offset).takeIf { it in minimum..maximum }
 
 @Composable
 private fun WeekCalendarCell(date: LocalDate, mealCount: Int, blocked: Boolean, selected: Boolean, today: Boolean, select: () -> Unit) {
@@ -451,7 +550,7 @@ private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundati
             }
         }
     } else {
-        LazyColumn(state = state, modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(state = state, modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 88.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(items, key = { item -> when (item) { is PlanItem.Month -> "month-${item.yearMonth}"; is PlanItem.TodayMarker -> "today-${item.date}"; is PlanItem.Day -> "day-${item.date}" } }) { item ->
                 when (item) {
                     is PlanItem.Month -> Text(item.yearMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.GERMAN)), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
