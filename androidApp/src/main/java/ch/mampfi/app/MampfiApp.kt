@@ -35,6 +35,7 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
     var updateDownloadProgress by remember { mutableStateOf<Int?>(null) }
     var updateDownloadError by remember { mutableStateOf<String?>(null) }
     val currentRoute = nav.currentBackStackEntryAsState().value?.destination?.route
+    val topLevelRoutes = remember { setOf("kalender", "ideen", "uebersicht", "einstellungen") }
     val appSettings by endpointStore.settings.collectAsState(initial = EndpointSettings())
     DisposableEffect(lifecycleOwner, vm) {
         val observer = LifecycleEventObserver { _, event ->
@@ -64,7 +65,7 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
-            if (currentRoute != "empfehlung/{date}") NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 8.dp) {
+            if (currentRoute in topLevelRoutes) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 8.dp) {
                 listOf(
                     Triple("kalender", "Kalender", Icons.Outlined.CalendarMonth),
                     Triple("ideen", "Ideen", Icons.Outlined.Lightbulb),

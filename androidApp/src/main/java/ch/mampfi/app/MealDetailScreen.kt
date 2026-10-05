@@ -50,17 +50,18 @@ internal fun MealDetailScreen(
     val history = remember(meal.eintraege) { meal.eintraege.sortedByDescending { it.datum } }
     var historyExpanded by rememberSaveable(meal.id) { mutableStateOf(false) }
     val visibleHistory = if (historyExpanded) history else history.take(5)
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(meal.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Zurück") } },
+            )
+        },
+    ) { scaffoldPadding -> LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
         contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Zurück") }
-                Text(meal.name, Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            }
-        }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { schedule(meal.id) }, modifier = Modifier.weight(1f)) {
@@ -171,7 +172,7 @@ internal fun MealDetailScreen(
                 Text(if (historyExpanded) "Weniger anzeigen" else "Alle ${history.size} Einträge anzeigen")
             }
         }
-    }
+    } }
     galleryImageUrl?.let { imageUrl -> MealImageGallery(meal, imageUrl) { galleryImageUrl = null } }
 }
 

@@ -178,3 +178,24 @@ internal fun FormSection(title: String, trailing: (@Composable () -> Unit)? = nu
         content()
     }
 }
+
+@Composable
+internal fun ConfirmDiscardChangesDialog(
+    visible: Boolean,
+    keepEditing: () -> Unit,
+    discard: () -> Unit,
+) {
+    if (!visible) return
+    AlertDialog(
+        onDismissRequest = keepEditing,
+        title = { Text("Änderungen verwerfen?") },
+        text = { Text("Deine nicht gespeicherten Änderungen gehen verloren.") },
+        confirmButton = {
+            TextButton(
+                onClick = discard,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("Verwerfen") }
+        },
+        dismissButton = { TextButton(onClick = keepEditing) { Text("Weiter bearbeiten") } },
+    )
+}

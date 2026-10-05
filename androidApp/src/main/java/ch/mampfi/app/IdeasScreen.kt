@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 package ch.mampfi.app
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -10,6 +11,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -127,6 +129,14 @@ internal fun IdeaEditScreen(vm: MealViewModel, mealId: String?, schedule: (Strin
         mutableStateOf(selectedIdea?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet())
     }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmDiscard by remember { mutableStateOf(false) }
+    val initialTags = remember(selectedIdea) {
+        selectedIdea?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet()
+    }
+    val dirty = name != selectedIdea?.name.orEmpty() || link != selectedIdea?.rezeptLink.orEmpty() ||
+        note != selectedIdea?.notiz.orEmpty() || tags != initialTags
+    fun requestBack() { if (dirty) confirmDiscard = true else done() }
+    BackHandler(enabled = dirty) { confirmDiscard = true }
     fun ideaOrNull(): Mahlzeit? {
         if (name.isBlank()) return null
         return (selectedIdea ?: Mahlzeit(name = name.trim())).copy(
@@ -137,8 +147,15 @@ internal fun IdeaEditScreen(vm: MealViewModel, mealId: String?, schedule: (Strin
             istIdee = true,
         )
     }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().imePadding(),
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(if (isNew) "Neue Idee" else "Idee bearbeiten", maxLines = 1) },
+                navigationIcon = { IconButton(onClick = ::requestBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Zurück") } },
+            )
+        },
+    ) { scaffoldPadding -> LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(scaffoldPadding).imePadding(),
         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -208,7 +225,7 @@ internal fun IdeaEditScreen(vm: MealViewModel, mealId: String?, schedule: (Strin
                 }
             }
         }
-    }
+    } }
     if (confirmDelete && selectedIdea != null) AlertDialog(
         onDismissRequest = { confirmDelete = false },
         title = { Text("Aus Ideen entfernen?") },
@@ -219,4 +236,5 @@ internal fun IdeaEditScreen(vm: MealViewModel, mealId: String?, schedule: (Strin
         }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Entfernen") } },
         dismissButton = { TextButton({ confirmDelete = false }) { Text("Abbrechen") } },
     )
+    ConfirmDiscardChangesDialog(confirmDiscard, { confirmDiscard = false }, done)
 }

@@ -2,6 +2,7 @@
 package ch.mampfi.app
 
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -50,17 +51,23 @@ internal fun SharedMealEditScreen(vm: MealViewModel, mealId: String, done: () ->
     var link by remember(meal.id) { mutableStateOf(meal.rezeptLink.orEmpty()) }
     var note by remember(meal.id) { mutableStateOf(meal.notiz.orEmpty()) }
     var tags by remember(meal.id) { mutableStateOf(meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags()) }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().imePadding(),
+    var confirmDiscard by remember { mutableStateOf(false) }
+    val initialTags = remember(meal.id) { meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags() }
+    val dirty = name != meal.name || link != meal.rezeptLink.orEmpty() || note != meal.notiz.orEmpty() || tags != initialTags
+    fun requestBack() { if (dirty) confirmDiscard = true else done() }
+    BackHandler(enabled = dirty) { confirmDiscard = true }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Mahlzeit bearbeiten", maxLines = 1) },
+                navigationIcon = { IconButton(onClick = ::requestBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Zurück") } },
+            )
+        },
+    ) { scaffoldPadding -> LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(scaffoldPadding).imePadding(),
         contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = done) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Zurück") }
-                Text("Mahlzeit bearbeiten", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            }
-        }
         item {
             FormSection("Mahlzeit") {
                 OutlinedTextField(
@@ -107,7 +114,8 @@ internal fun SharedMealEditScreen(vm: MealViewModel, mealId: String, done: () ->
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Speichern") }
         }
-    }
+    } }
+    ConfirmDiscardChangesDialog(confirmDiscard, { confirmDiscard = false }, done)
 }
 
 
@@ -178,10 +186,17 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
     var tags by remember(selectedMeal) { mutableStateOf(selectedMeal?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet()) }
     val existingRating = existingEntry?.bewertung; var ratingOne by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(0)?.toString().orEmpty()) }; var ratingTwo by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(1)?.toString().orEmpty()) }
     var selectedDateEpochDay by rememberSaveable(date) { mutableLongStateOf(date.toEpochDay()) }; var expanded by remember { mutableStateOf(false) }; var confirmDelete by remember { mutableStateOf(false) }; var pendingImage by remember { mutableStateOf<PendingEntryImage?>(null) }
-    var galleryImageUrl by remember { mutableStateOf<String?>(null) }
+    var galleryImageUrl by remember { mutableStateOf<String?>(null) }; var confirmDiscard by remember { mutableStateOf(false) }
     val context = LocalContext.current; val selectedDate = LocalDate.ofEpochDay(selectedDateEpochDay)
     val blockedDates = awayEntries.mapNotNull { runCatching { LocalDate.parse(it.datum) }.getOrNull() }.toSet()
     val dateBlocked = selectedDate in blockedDates
+    val initialTags = remember(selectedMeal) { selectedMeal?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet() }
+    val dirty = name != selectedMeal?.name.orEmpty() || link != selectedMeal?.rezeptLink.orEmpty() ||
+        note != selectedMeal?.notiz.orEmpty() || tags != initialTags || selectedDate != date ||
+        ratingOne != existingRating?.werte?.getOrNull(0)?.toString().orEmpty() ||
+        ratingTwo != existingRating?.werte?.getOrNull(1)?.toString().orEmpty() || chosen != null || pendingImage != null
+    fun requestBack() { if (dirty) confirmDiscard = true else done() }
+    BackHandler(enabled = dirty) { confirmDiscard = true }
     fun selectedImage(stream: () -> java.io.InputStream, filename: String, preview: Any) {
         val meal = selectedMeal
         val entry = existingEntry
@@ -190,8 +205,15 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
     }
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let { selectedImage({ context.contentResolver.openInputStream(it)!! }, "galerie.jpg", it) } }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? -> bitmap?.let { b -> val bytes = ByteArrayOutputStream().also { b.compress(Bitmap.CompressFormat.JPEG, 90, it) }.toByteArray(); selectedImage({ ByteArrayInputStream(bytes) }, "kamera.jpg", b) } }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().imePadding(),
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(when { existingEntry != null -> "Eintrag bearbeiten"; selectedMeal?.istIdee == true -> "Mahlzeit planen"; else -> "Neues Essen" }, maxLines = 1) },
+                navigationIcon = { IconButton(onClick = ::requestBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Zurück") } },
+            )
+        },
+    ) { scaffoldPadding -> LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(scaffoldPadding).imePadding(),
         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -224,13 +246,14 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
             Button(onClick = { val ratingTexts = listOf(ratingOne, ratingTwo); val ratingsProvided = ratingTexts.any { it.isNotBlank() }; val validRatings = ratingTexts.map { it.replace(',', '.').toDoubleOrNull()?.takeIf { value -> value in 1.0..10.0 } }; if (name.isBlank() || dateBlocked || (ratingsProvided && validRatings.any { it == null })) return@Button; val base = selectedMeal ?: chosen ?: Mahlzeit(name = name.trim()); val meal = base.copy(name = name.trim(), rezeptLink = link.trim().ifBlank { null }, tags = tags.normalizedDietTags().map { it.name }, notiz = note.trim().ifBlank { null }); val rating = if (ratingsProvided) MahlzeitBewertung(validRatings.filterNotNull()) else null; val occurrence = existingEntry?.copy(datum = selectedDate.toString(), bewertung = rating) ?: MahlzeitEintrag(datum = selectedDate.toString(), bewertung = rating); when { existingEntry != null -> vm.updateEntry(meal, occurrence); selectedMeal != null || chosen != null -> vm.createEntry(meal, occurrence, pendingImage?.upload); else -> vm.createMeal(meal, occurrence, pendingImage?.upload) }; done() }, enabled = !dateBlocked, modifier = Modifier.fillMaxWidth()) { Text("Speichern") }
         } }
         if (existingEntry != null) item { Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) { TextButton({ confirmDelete = true }, Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Icon(Icons.Outlined.DeleteOutline, null); Spacer(Modifier.width(4.dp)); Text("Eintrag löschen") } } }
-    }
+    } }
     if (confirmDelete && selectedMeal != null && existingEntry != null) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Eintrag löschen?") }, text = { Text("Nur dieser Termin und seine Bilder werden dauerhaft gelöscht. Beim letzten Eintrag wird auch die Mahlzeit entfernt.") }, confirmButton = { TextButton({ vm.deleteEntry(selectedMeal.id, existingEntry.id); done() }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Löschen") } }, dismissButton = { TextButton({ confirmDelete = false }) { Text("Abbrechen") } })
     galleryImageUrl?.let { imageUrl ->
         if (selectedMeal != null && existingEntry != null) {
             MealImageGallery(selectedMeal.copy(eintraege = listOf(existingEntry)), imageUrl) { galleryImageUrl = null }
         }
     }
+    ConfirmDiscardChangesDialog(confirmDiscard, { confirmDiscard = false }, done)
 }
 
 @Composable
