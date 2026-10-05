@@ -2,6 +2,7 @@
 package ch.mampfi.app
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -82,7 +83,8 @@ internal fun IdeasScreen(ideas: List<Mahlzeit>, add: () -> Unit, edit: (Mahlzeit
             if (filtered.isEmpty()) {
                 Surface(Modifier.fillMaxWidth().weight(1f), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
                     Column(Modifier.padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(if (ideas.isEmpty()) Icons.Outlined.Lightbulb else Icons.Outlined.SearchOff, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
+                        if (ideas.isEmpty()) MampfiEmptyMascot(Modifier.size(96.dp))
+                        else Icon(Icons.Outlined.SearchOff, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(12.dp))
                         Text(if (ideas.isEmpty()) "Noch keine Ideen" else "Keine passenden Ideen", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                         Text(if (ideas.isEmpty()) "Speichert euer nächstes Wunschgericht." else "Passe deine Suche oder Filter an.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -132,7 +134,7 @@ private fun IdeasFilterSheet(selected: Set<Tag>, apply: (Set<Tag>) -> Unit, dism
 
 @Composable
 private fun IdeaCard(idea: Mahlzeit, click: () -> Unit) = Card(
-    modifier = Modifier.fillMaxWidth().clickable(onClick = click),
+    modifier = Modifier.fillMaxWidth().animateContentSize().clickable(onClick = click),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
 ) {
     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

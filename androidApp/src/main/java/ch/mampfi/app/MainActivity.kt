@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
 
             when {
                 settings == null -> {
-                    MampfiTheme {
+                    MampfiTheme(settings?.themeMode ?: ThemeMode.SYSTEM) {
                         StartupLoadingScreen(
                             message = "Mampfi wird geladen …",
                             revealDetails = revealStartupDetails.value,
@@ -91,10 +91,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 !settings!!.isConfigured -> {
-                    MampfiTheme { EndpointSetupScreen(endpointStore) }
+                    MampfiTheme(settings!!.themeMode) { EndpointSetupScreen(endpointStore) }
                 }
                 baseUrl == null -> {
-                    MampfiTheme {
+                    MampfiTheme(settings!!.themeMode) {
                         StartupLoadingScreen(
                             message = "Server wird verbunden …",
                             revealDetails = revealStartupDetails.value,
@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
                         vm,
                         connectedViaTailscale = baseUrl == settings!!.tailscaleBaseUrl,
                         endpointStore = endpointStore,
+                        themeMode = settings!!.themeMode,
                     )
                 }
             }

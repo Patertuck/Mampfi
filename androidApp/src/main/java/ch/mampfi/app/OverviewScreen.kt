@@ -2,6 +2,7 @@
 package ch.mampfi.app
 
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -22,13 +23,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ch.mampfi.app.data.*
-import coil3.compose.AsyncImage
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -87,7 +86,8 @@ internal fun OverviewScreen(meals: List<Mahlzeit>, open: (Mahlzeit) -> Unit, set
         Spacer(Modifier.height(14.dp))
         if (filtered.isEmpty()) Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
             Column(Modifier.padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(if (meals.isEmpty()) Icons.Outlined.CalendarMonth else Icons.Outlined.SearchOff, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
+                if (meals.isEmpty()) MampfiEmptyMascot(Modifier.size(96.dp))
+                else Icon(Icons.Outlined.SearchOff, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(12.dp))
                 Text(if (meals.isEmpty()) "Noch keine Mahlzeiten" else "Keine passenden Mahlzeiten", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Text(if (meals.isEmpty()) "Plane im Kalender euer erstes Essen." else "Passe deine Suche oder Filter an.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -139,11 +139,17 @@ private fun OverviewFilterSheet(selected: Set<Tag>, sort: MealSort, apply: (Set<
 internal fun Set<Tag>.toggle(item: Tag) = if (item in this) this - item else this + item
 
 @Composable
-private fun MealCard(meal: Mahlzeit, click: () -> Unit, toggleIdea: () -> Unit, openGallery: () -> Unit) = Card(Modifier.fillMaxWidth().clickable(onClick = click), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+private fun MealCard(meal: Mahlzeit, click: () -> Unit, toggleIdea: () -> Unit, openGallery: () -> Unit) = Card(Modifier.fillMaxWidth().animateContentSize().clickable(onClick = click), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
     val lastCooked = meal.letzterTermin()?.let { date ->
         runCatching { LocalDate.parse(date).format(DateTimeFormatter.ofPattern("dd.MM.yy")) }.getOrNull()
     } ?: "–"
     Column {
+        MealThumbnail(
+            imageUrl = meal.letztesBild(),
+            contentDescription = meal.letztesBild()?.let { "Bild von ${meal.name} ansehen" },
+            modifier = Modifier.fillMaxWidth().height(136.dp),
+            openGallery = if (meal.letztesBild() != null) openGallery else null,
+        )
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(meal.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -172,17 +178,6 @@ private fun MealCard(meal: Mahlzeit, click: () -> Unit, toggleIdea: () -> Unit, 
                 Spacer(Modifier.height(8.dp))
                 Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        }
-        meal.letztesBild()?.let { image ->
-            AsyncImage(
-                model = image,
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp)
-                    .clickable(onClick = openGallery),
-                contentScale = ContentScale.Crop,
-            )
         }
     }
 }

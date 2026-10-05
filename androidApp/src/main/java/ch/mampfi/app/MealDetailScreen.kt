@@ -112,8 +112,8 @@ internal fun MealDetailScreen(
                 ) {
                     MealStat("Gekocht", meal.eintraege.size.toString(), modifier = Modifier.weight(1f))
                     MealStat("Ø gesamt", formatRating(meal.durchschnitt()), modifier = Modifier.weight(1f))
-                    MealStat(firstRaterName, formatRating(meal.durchschnittFuer(0)), FirstRaterColor, Modifier.weight(1f))
-                    MealStat(secondRaterName, formatRating(meal.durchschnittFuer(1)), SecondRaterColor, Modifier.weight(1f))
+                    MealStat(firstRaterName, formatRating(meal.durchschnittFuer(0)), MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+                    MealStat(secondRaterName, formatRating(meal.durchschnittFuer(1)), MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
                     MealStat("Zum ersten Mal", meal.ersterTermin()?.let(::formatImageDate) ?: "–", modifier = Modifier.weight(1f))
                     MealStat("Zuletzt", meal.letzterTermin()?.let(::formatImageDate) ?: "–", modifier = Modifier.weight(1f))
                 }
@@ -160,8 +160,8 @@ internal fun MealDetailScreen(
                             }
                         }
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            HistoryRatingChip(firstRaterName, occurrence.bewertung?.werte?.getOrNull(0), FirstRaterColor)
-                            HistoryRatingChip(secondRaterName, occurrence.bewertung?.werte?.getOrNull(1), SecondRaterColor)
+                            HistoryRatingChip(firstRaterName, occurrence.bewertung?.werte?.getOrNull(0), MaterialTheme.colorScheme.primary)
+                            HistoryRatingChip(secondRaterName, occurrence.bewertung?.werte?.getOrNull(1), MaterialTheme.colorScheme.tertiary)
                         }
                     }
                 }

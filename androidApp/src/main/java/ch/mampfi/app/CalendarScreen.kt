@@ -18,7 +18,6 @@ import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.RestaurantMenu
 import androidx.compose.material.icons.outlined.Today
@@ -28,7 +27,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
@@ -37,7 +35,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ch.mampfi.app.data.*
-import coil3.compose.AsyncImage
 import com.kizitonwose.calendar.compose.WeekCalendar
 import com.kizitonwose.calendar.compose.weekcalendar.rememberWeekCalendarState
 import java.time.LocalDate
@@ -367,7 +364,7 @@ private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, awayEntry: Auswae
                 AwayEntryCard(awayEntry) { editAway(awayEntry) }
             } else if (meals.isEmpty()) {
                 Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
+                    MampfiEmptyMascot(Modifier.size(96.dp))
                     Spacer(Modifier.height(12.dp))
                     Text("Zeit für etwas Leckeres.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text("Plane eine Mahlzeit für diesen Tag.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
@@ -392,22 +389,12 @@ private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, clic
 ) {
     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
         val imageUrl = occurrence.letztesBild()
-        Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) {
-            if (imageUrl != null) {
-                AsyncImage(
-                    imageUrl,
-                    "Bild von ${meal.name} ansehen",
-                    Modifier.fillMaxSize().clip(MaterialTheme.shapes.small).clickable { openGallery(imageUrl) },
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.small) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Outlined.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-        }
+        MealThumbnail(
+            imageUrl = imageUrl,
+            contentDescription = imageUrl?.let { "Bild von ${meal.name} ansehen" },
+            modifier = Modifier.size(64.dp),
+            openGallery = imageUrl?.let { { openGallery(it) } },
+        )
         Column(Modifier.padding(start = 12.dp).weight(1f)) {
             Text(meal.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             meal.notiz?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -542,7 +529,7 @@ private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundati
     if (items.isEmpty()) {
         Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
             Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
+                MampfiEmptyMascot(Modifier.size(96.dp))
                 Spacer(Modifier.height(12.dp))
                 Text("Noch nichts geplant", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text("Plane deine erste Mahlzeit für heute.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -584,7 +571,7 @@ private fun TodayMarkerRow(date: LocalDate) {
 private fun PlanEmptyState(modifier: Modifier = Modifier) {
     Surface(modifier, color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
         Column(Modifier.padding(horizontal = 28.dp, vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
+            MampfiEmptyMascot(Modifier.size(96.dp))
             Spacer(Modifier.height(12.dp))
             Text("Noch nichts geplant", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text("Plane deine erste Mahlzeit für heute.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)

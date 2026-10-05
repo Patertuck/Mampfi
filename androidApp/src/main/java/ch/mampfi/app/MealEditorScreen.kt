@@ -259,8 +259,8 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
         item { FormSection("Eigenschaften") { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Tag.entries.forEach { tag -> FilterChip(tag in tags, { tags = tags.toggleMealTag(tag) }, { Text(tag.label) }) } } } }
         item { FormSection("Bewertung") {
             Text("Wenn ihr das Essen bewertet, gebt beide Bewertungen ein.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            RaterScoreField(ratingOne, { ratingOne = it }, firstRaterName, FirstRaterColor, if (validationRequested) validation.firstRatingError else null)
-            RaterScoreField(ratingTwo, { ratingTwo = it }, secondRaterName, SecondRaterColor, if (validationRequested) validation.secondRatingError else null)
+            RaterScoreField(ratingOne, { ratingOne = it }, firstRaterName, MaterialTheme.colorScheme.primary, if (validationRequested) validation.firstRatingError else null)
+            RaterScoreField(ratingTwo, { ratingTwo = it }, secondRaterName, MaterialTheme.colorScheme.tertiary, if (validationRequested) validation.secondRatingError else null)
         } }
         item { FormSection("Termin") {
             MealDateSelector(selectedDate, blockedDates) { selectedDateEpochDay = it.toEpochDay() }

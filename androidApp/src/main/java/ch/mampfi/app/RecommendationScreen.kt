@@ -186,7 +186,7 @@ private fun RecommendationCard(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Icon(Icons.Outlined.RestaurantMenu, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    MampfiEmptyMascot(Modifier.size(104.dp))
                     Spacer(Modifier.height(12.dp))
                     Text(candidate.meal.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
                 }

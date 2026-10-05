@@ -15,11 +15,14 @@ import kotlinx.coroutines.flow.map
 const val DEFAULT_FIRST_RATER_NAME = "Person 1"
 const val DEFAULT_SECOND_RATER_NAME = "Person 2"
 
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
 data class EndpointSettings(
     val lanBaseUrl: String = "",
     val tailscaleBaseUrl: String = "",
     val firstRaterName: String = DEFAULT_FIRST_RATER_NAME,
     val secondRaterName: String = DEFAULT_SECOND_RATER_NAME,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
 ) {
     val isConfigured: Boolean get() = lanBaseUrl.isNotBlank()
 }
@@ -42,11 +45,16 @@ class EndpointSettingsStore(private val context: Context) {
         }
     }
 
+    suspend fun setThemeMode(themeMode: ThemeMode) {
+        context.endpointDataStore.edit { preferences -> preferences[THEME_MODE] = themeMode.name }
+    }
+
     companion object {
         private val LAN_BASE_URL = stringPreferencesKey("lan_base_url")
         private val TAILSCALE_BASE_URL = stringPreferencesKey("tailscale_base_url")
         private val FIRST_RATER_NAME = stringPreferencesKey("first_rater_name")
         private val SECOND_RATER_NAME = stringPreferencesKey("second_rater_name")
+        private val THEME_MODE = stringPreferencesKey("theme_mode")
 
         fun normalizeRaterName(value: String): String = value.trim().also {
             require(it.isNotEmpty()) { "Beide Namen müssen ausgefüllt sein" }
@@ -65,6 +73,7 @@ class EndpointSettingsStore(private val context: Context) {
             tailscaleBaseUrl = preferences[TAILSCALE_BASE_URL].orEmpty(),
             firstRaterName = preferences[FIRST_RATER_NAME] ?: DEFAULT_FIRST_RATER_NAME,
             secondRaterName = preferences[SECOND_RATER_NAME] ?: DEFAULT_SECOND_RATER_NAME,
+            themeMode = preferences[THEME_MODE]?.let { value -> runCatching { ThemeMode.valueOf(value) }.getOrNull() } ?: ThemeMode.SYSTEM,
         )
     }
 }

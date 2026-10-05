@@ -8,8 +8,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EndpointSetupScreen(store: EndpointSettingsStore, configured: Boolean = false, saved: () -> Unit = {}) {
     val settings by store.settings.collectAsState(initial = null)
@@ -79,6 +84,25 @@ fun EndpointSetupScreen(store: EndpointSettingsStore, configured: Boolean = fals
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             singleLine = true,
         )
+        if (configured) {
+            Spacer(Modifier.height(24.dp))
+            Text("Darstellung", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(12.dp))
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                listOf(
+                    ThemeMode.SYSTEM to "System",
+                    ThemeMode.LIGHT to "Hell",
+                    ThemeMode.DARK to "Dunkel",
+                ).forEachIndexed { index, (mode, label) ->
+                    SegmentedButton(
+                        selected = settings?.themeMode == mode,
+                        onClick = { scope.launch { store.setThemeMode(mode) } },
+                        shape = SegmentedButtonDefaults.itemShape(index, 3),
+                        label = { Text(label) },
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(24.dp))
         Text("Personen für Bewertungen", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(12.dp))

@@ -2,6 +2,7 @@
 package ch.mampfi.app
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,8 +20,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -112,6 +115,43 @@ internal fun DietMarker(meal: Mahlzeit, modifier: Modifier = Modifier) {
             tint = contentColor,
         )
     }
+}
+
+@Composable
+internal fun MealThumbnail(
+    imageUrl: String?,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    openGallery: (() -> Unit)? = null,
+) {
+    Box(
+        modifier
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .clickable(enabled = imageUrl != null && openGallery != null) { openGallery?.invoke() },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (imageUrl != null) {
+            AsyncImage(imageUrl, contentDescription, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        } else {
+            Image(
+                painter = painterResource(R.drawable.mampfi_splash_mascot),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(0.72f),
+                contentScale = ContentScale.Fit,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun MampfiEmptyMascot(modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(R.drawable.mampfi_splash_mascot),
+        contentDescription = null,
+        modifier = modifier,
+        contentScale = ContentScale.Fit,
+    )
 }
 
 @Composable

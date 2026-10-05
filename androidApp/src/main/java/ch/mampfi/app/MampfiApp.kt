@@ -24,7 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpointStore: EndpointSettingsStore) = MampfiTheme {
+fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpointStore: EndpointSettingsStore, themeMode: ThemeMode = ThemeMode.SYSTEM) = MampfiTheme(themeMode) {
     val nav = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
