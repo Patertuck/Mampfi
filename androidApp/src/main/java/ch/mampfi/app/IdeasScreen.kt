@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -37,14 +39,16 @@ import ch.mampfi.app.data.*
 import java.util.Locale
 
 @Composable
-internal fun IdeasScreen(ideas: List<Mahlzeit>, add: () -> Unit, edit: (Mahlzeit) -> Unit) {
+internal fun IdeasScreen(ideas: List<Mahlzeit>, add: () -> Unit, edit: (Mahlzeit) -> Unit, isRefreshing: Boolean, refresh: () -> Unit) {
     var selectedTagNames by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var query by rememberSaveable { mutableStateOf("") }
     var filterSheetVisible by rememberSaveable { mutableStateOf(false) }
     val selected = selectedTagNames.mapNotNull { name -> Tag.entries.find { it.name == name } }.toSet()
     val filtered = filterMeals(ideas, query, selected).sortedBy { it.name.lowercase(Locale.GERMAN) }
+    val gridState = rememberLazyGridState()
     fun updateSelected(tags: Set<Tag>) { selectedTagNames = tags.map { it.name }.sorted() }
-    Box(Modifier.fillMaxSize()) {
+    PullToRefreshBox(isRefreshing = isRefreshing, onRefresh = refresh, modifier = Modifier.fillMaxSize()) {
+      Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
             Text("Ideen", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("Sammelt Gerichte, die ihr später einplanen möchtet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -87,13 +91,14 @@ internal fun IdeasScreen(ideas: List<Mahlzeit>, add: () -> Unit, edit: (Mahlzeit
                         else Icon(Icons.Outlined.SearchOff, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(12.dp))
                         Text(if (ideas.isEmpty()) "Noch keine Ideen" else "Keine passenden Ideen", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                        Text(if (ideas.isEmpty()) "Speichert euer nächstes Wunschgericht." else "Passe deine Suche oder Filter an.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (ideas.isEmpty()) "Speichert euer nächstes Wunschgericht." else "Passt eure Suche oder Filter an.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (ideas.isNotEmpty()) TextButton(onClick = { query = ""; updateSelected(emptySet()) }) { Text("Suche und Filter zurücksetzen") }
                     }
                 }
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(164.dp),
+                    state = gridState,
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(bottom = 80.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -106,6 +111,7 @@ internal fun IdeasScreen(ideas: List<Mahlzeit>, add: () -> Unit, edit: (Mahlzeit
         FloatingActionButton(onClick = add, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
             Icon(Icons.Outlined.Add, contentDescription = "Idee hinzufügen")
         }
+      }
     }
     if (filterSheetVisible) IdeasFilterSheet(
         selected = selected,

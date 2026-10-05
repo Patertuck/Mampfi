@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.ViewList
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -37,6 +39,7 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
     val currentRoute = nav.currentBackStackEntryAsState().value?.destination?.route
     val topLevelRoutes = remember { setOf("kalender", "ideen", "uebersicht", "einstellungen") }
     val appSettings by endpointStore.settings.collectAsState(initial = EndpointSettings())
+    val syncStatus by vm.syncStatus.collectAsState()
     DisposableEffect(lifecycleOwner, vm) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -63,6 +66,7 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
     }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        topBar = { SyncStatusBar(syncStatus, vm::refresh) },
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             if (currentRoute in topLevelRoutes) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 8.dp) {
@@ -92,16 +96,22 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
                 createAway = vm::createAwayEntry,
                 updateAway = vm::updateAwayEntry,
                 deleteAway = vm::deleteAwayEntry,
+                isRefreshing = syncStatus.isRefreshing,
+                refresh = vm::refresh,
             ) }
             composable("ideen") { IdeasScreen(
                 ideas = vm.meals.collectAsState().value.filter { it.istIdee },
                 add = { nav.navigate("idee") },
                 edit = { nav.navigate("idee?meal=${it.id}") },
+                isRefreshing = syncStatus.isRefreshing,
+                refresh = vm::refresh,
             ) }
             composable("uebersicht") { OverviewScreen(
                 meals = vm.meals.collectAsState().value.filter { it.eintraege.isNotEmpty() },
                 open = { meal -> nav.navigate("mahlzeit/${meal.id}") },
                 setIdea = { meal, isIdea -> vm.setIdea(meal, isIdea) },
+                isRefreshing = syncStatus.isRefreshing,
+                refresh = vm::refresh,
             ) }
             composable("einstellungen") { EndpointSetupScreen(endpointStore, configured = true) { nav.popBackStack() } }
             composable("idee?meal={meal}") { entry -> IdeaEditScreen(
@@ -166,5 +176,29 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
             snackbar.showSnackbar(error)
             updateDownloadError = null
         }
+    }
+}
+
+@Composable
+private fun SyncStatusBar(status: SyncStatus, retry: () -> Unit) {
+    Column {
+        if (status.isOffline) Surface(
+            color = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.CloudOff, contentDescription = null, modifier = Modifier.size(20.dp))
+                Text("Offline · Lokale Daten", Modifier.weight(1f).padding(horizontal = 10.dp), style = MaterialTheme.typography.labelLarge)
+                TextButton(onClick = retry, enabled = !status.isRefreshing) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Erneut versuchen")
+                }
+            }
+        }
+        if (status.isRefreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
     }
 }

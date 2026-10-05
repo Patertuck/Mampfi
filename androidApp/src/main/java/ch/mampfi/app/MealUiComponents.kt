@@ -229,7 +229,7 @@ internal fun ConfirmDiscardChangesDialog(
     AlertDialog(
         onDismissRequest = keepEditing,
         title = { Text("Änderungen verwerfen?") },
-        text = { Text("Deine nicht gespeicherten Änderungen gehen verloren.") },
+        text = { Text("Eure nicht gespeicherten Änderungen gehen verloren.") },
         confirmButton = {
             TextButton(
                 onClick = discard,

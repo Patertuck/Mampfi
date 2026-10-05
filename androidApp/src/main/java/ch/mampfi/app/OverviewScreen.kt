@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.filled.Lightbulb
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -33,7 +35,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
-internal fun OverviewScreen(meals: List<Mahlzeit>, open: (Mahlzeit) -> Unit, setIdea: (Mahlzeit, Boolean) -> Unit) {
+internal fun OverviewScreen(meals: List<Mahlzeit>, open: (Mahlzeit) -> Unit, setIdea: (Mahlzeit, Boolean) -> Unit, isRefreshing: Boolean, refresh: () -> Unit) {
     var selectedTagNames by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var query by rememberSaveable { mutableStateOf("") }
     var sortName by rememberSaveable { mutableStateOf(MealSort.LATEST.name) }
@@ -43,9 +45,11 @@ internal fun OverviewScreen(meals: List<Mahlzeit>, open: (Mahlzeit) -> Unit, set
     val sort = runCatching { MealSort.valueOf(sortName) }.getOrDefault(MealSort.LATEST)
     val filtered = sortMeals(filterMeals(meals, query, selected), sort)
     val activeCount = selected.size + if (sort != MealSort.LATEST) 1 else 0
+    val gridState = rememberLazyGridState()
     fun updateSelected(tags: Set<Tag>) { selectedTagNames = tags.map { it.name }.sorted() }
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Deine Mahlzeiten", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+    PullToRefreshBox(isRefreshing = isRefreshing, onRefresh = refresh, modifier = Modifier.fillMaxSize()) {
+      Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Eure Mahlzeiten", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text("Finde schnell, worauf ihr Lust habt.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(16.dp))
         OutlinedTextField(
@@ -90,10 +94,11 @@ internal fun OverviewScreen(meals: List<Mahlzeit>, open: (Mahlzeit) -> Unit, set
                 else Icon(Icons.Outlined.SearchOff, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(12.dp))
                 Text(if (meals.isEmpty()) "Noch keine Mahlzeiten" else "Keine passenden Mahlzeiten", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                Text(if (meals.isEmpty()) "Plane im Kalender euer erstes Essen." else "Passe deine Suche oder Filter an.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (meals.isEmpty()) "Plant im Kalender euer erstes Essen." else "Passt eure Suche oder Filter an.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (meals.isNotEmpty()) TextButton(onClick = { query = ""; updateSelected(emptySet()); sortName = MealSort.LATEST.name }) { Text("Suche und Filter zurücksetzen") }
             }
-        } else LazyVerticalGrid(GridCells.Adaptive(164.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) { items(filtered, key = { it.id }) { meal -> MealCard(meal, { open(meal) }, { setIdea(meal, !meal.istIdee) }) { galleryMeal = meal } } }
+        } else LazyVerticalGrid(GridCells.Adaptive(164.dp), state = gridState, verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) { items(filtered, key = { it.id }) { meal -> MealCard(meal, { open(meal) }, { setIdea(meal, !meal.istIdee) }) { galleryMeal = meal } } }
+      }
     }
     if (filterSheetVisible) OverviewFilterSheet(
         selected = selected,
@@ -154,7 +159,7 @@ private fun MealCard(meal: Mahlzeit, click: () -> Unit, toggleIdea: () -> Unit, 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(meal.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 DietMarker(meal, Modifier.padding(start = 8.dp))
-                IconButton(onClick = toggleIdea, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = toggleIdea, modifier = Modifier.size(48.dp)) {
                     Icon(
                         if (meal.istIdee) Icons.Filled.Lightbulb else Icons.Outlined.Lightbulb,
                         contentDescription = if (meal.istIdee) "Aus Ideen entfernen" else "Zu Ideen hinzufügen",

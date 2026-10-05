@@ -8,22 +8,50 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.time.Instant
 import java.time.LocalDate
 import java.io.InputStream
 
 data class PendingImageUpload(val filename: String, val openStream: () -> InputStream)
 
+data class SyncStatus(
+    val isRefreshing: Boolean = true,
+    val isOffline: Boolean = false,
+    val lastSuccessfulRefresh: Instant? = null,
+)
+
+internal fun SyncStatus.afterRefresh(success: Boolean, completedAt: Instant): SyncStatus = if (success) {
+    copy(isRefreshing = false, isOffline = false, lastSuccessfulRefresh = completedAt)
+} else {
+    copy(isRefreshing = false, isOffline = true)
+}
+
 class MealViewModel(private val repository: MealRepository) : ViewModel() {
     val meals = repository.meals.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val awayEntries = repository.awayEntries.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _message = MutableSharedFlow<String>(); val message = _message.asSharedFlow()
+    private val _syncStatus = MutableStateFlow(SyncStatus())
+    val syncStatus = _syncStatus.asStateFlow()
     private var foregroundRefreshJob: Job? = null
+    private val refreshMutex = Mutex()
+
+    private suspend fun refreshFromServer(showFailureMessage: Boolean, showActivity: Boolean) = refreshMutex.withLock {
+        if (showActivity) _syncStatus.update { it.copy(isRefreshing = true) }
+        val result = repository.refresh()
+        _syncStatus.update { it.afterRefresh(result.isSuccess, Instant.now()) }
+        if (result.isFailure && showFailureMessage) _message.emit("Aktualisierung fehlgeschlagen – lokale Daten werden angezeigt.")
+    }
 
     fun startForegroundRefresh() {
         if (foregroundRefreshJob != null) return
         foregroundRefreshJob = viewModelScope.launch {
             while (isActive) {
-                repository.refresh()
+                refreshFromServer(
+                    showFailureMessage = false,
+                    showActivity = _syncStatus.value.lastSuccessfulRefresh == null,
+                )
                 delay(15_000)
             }
         }
@@ -33,7 +61,7 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
         foregroundRefreshJob?.cancel()
         foregroundRefreshJob = null
     }
-    fun refresh() = viewModelScope.launch { repository.refresh().onFailure { _message.emit("Aktualisierung fehlgeschlagen – lokale Daten werden angezeigt.") } }
+    fun refresh() = viewModelScope.launch { refreshFromServer(showFailureMessage = true, showActivity = true) }
     fun createMeal(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null, onComplete: (Boolean) -> Unit = {}) = viewModelScope.launch {
         saveWithOptionalImage(repository.createMeal(meal, entry), meal.id, entry.id, image, onComplete)
     }

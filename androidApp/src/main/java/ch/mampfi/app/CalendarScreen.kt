@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.RestaurantMenu
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -29,6 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -51,6 +54,8 @@ internal fun CalendarScreen(
     createAway: (AuswaertsEintrag, Boolean, () -> Unit) -> Unit,
     updateAway: (AuswaertsEintrag, Boolean, () -> Unit) -> Unit,
     deleteAway: (String, () -> Unit) -> Unit,
+    isRefreshing: Boolean,
+    refresh: () -> Unit,
 ) {
     val today = LocalDate.now()
     val currentMonth = YearMonth.from(today)
@@ -74,6 +79,7 @@ internal fun CalendarScreen(
     val planListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val swipeThreshold = with(LocalDensity.current) { 64.dp.toPx() }
+    val calendarHeight = if (LocalDensity.current.fontScale > 1.2f) 190.dp else 158.dp
     fun navigateToWeek(date: LocalDate) {
         scope.launch {
             weekState.animateScrollToWeek(date)
@@ -111,7 +117,8 @@ internal fun CalendarScreen(
             },
         )
     } else Modifier
-    Column(Modifier.fillMaxSize().then(weekSwipeModifier).padding(horizontal = 16.dp, vertical = 12.dp)) {
+    val calendarContent: @Composable () -> Unit = {
+      Column(Modifier.fillMaxSize().then(weekSwipeModifier).padding(horizontal = 16.dp, vertical = 12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             SingleChoiceSegmentedButtonRow(Modifier.weight(1f)) {
                 SegmentedButton(
@@ -146,7 +153,7 @@ internal fun CalendarScreen(
         Spacer(Modifier.height(16.dp))
         if (calendarView == "WEEK") {
             WeekCalendar(
-                modifier = Modifier.height(158.dp),
+                modifier = Modifier.height(calendarHeight),
                 state = weekState,
                 userScrollEnabled = false,
                 weekHeader = { week ->
@@ -174,22 +181,32 @@ internal fun CalendarScreen(
                     openGallery = { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl },
                     modifier = Modifier.fillMaxSize(),
                 )
-                if (awayEntries.none { it.datum == selectedDate.toString() }) ExtendedFloatingActionButton(
-                    onClick = { actionDate = selectedDate }, modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
-                    icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                    text = { Text("Planen") },
-                )
+                if (awayEntries.none { it.datum == selectedDate.toString() }) FloatingActionButton(
+                    onClick = { actionDate = selectedDate },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                ) {
+                    Icon(Icons.Outlined.Add, contentDescription = "Planen")
+                }
             }
         } else {
             Box(Modifier.weight(1f)) {
                 PlanSchedule(planItems, planListState, today, edit, { editingAway = it; creatingAway = false }, { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl }, Modifier.fillMaxSize())
-                if (awayEntries.none { it.datum == today.toString() }) ExtendedFloatingActionButton(
-                    onClick = { actionDate = today }, modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
-                    icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                    text = { Text("Planen") },
-                )
+                if (awayEntries.none { it.datum == today.toString() }) FloatingActionButton(
+                    onClick = { actionDate = today },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                ) {
+                    Icon(Icons.Outlined.Add, contentDescription = "Planen")
+                }
             }
         }
+      }
+    }
+    if (calendarView == "WEEK") {
+        PullToRefreshBox(isRefreshing = isRefreshing, onRefresh = refresh, modifier = Modifier.fillMaxSize()) {
+            calendarContent()
+        }
+    } else {
+        calendarContent()
     }
     if (showWeekPicker) {
         val pickerState = rememberDatePickerState(
@@ -324,8 +341,19 @@ internal fun adjacentWeekDate(currentWeekStart: LocalDate, offset: Long, minimum
 
 @Composable
 private fun WeekCalendarCell(date: LocalDate, mealCount: Int, blocked: Boolean, selected: Boolean, today: Boolean, select: () -> Unit) {
+    val stateDescription = buildList {
+        add(date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM", Locale.GERMAN)))
+        when {
+            blocked -> add("Auswärts essen")
+            mealCount == 1 -> add("Eine Mahlzeit geplant")
+            mealCount > 1 -> add("$mealCount Mahlzeiten geplant")
+            else -> add("Nichts geplant")
+        }
+        if (today) add("Heute")
+        if (selected) add("Ausgewählt")
+    }.joinToString(", ")
     Surface(
-        modifier = Modifier.fillMaxWidth().height(82.dp).padding(horizontal = 2.dp, vertical = 3.dp).clip(MaterialTheme.shapes.medium).clickable(onClick = select),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 82.dp).padding(horizontal = 2.dp, vertical = 3.dp).clip(MaterialTheme.shapes.medium).clickable(onClick = select).semantics { contentDescription = stateDescription },
         shape = MaterialTheme.shapes.medium,
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
         border = if (today || selected) BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary) else null,
@@ -532,7 +560,7 @@ private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundati
                 MampfiEmptyMascot(Modifier.size(96.dp))
                 Spacer(Modifier.height(12.dp))
                 Text("Noch nichts geplant", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("Plane deine erste Mahlzeit für heute.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Plant eure erste Mahlzeit für heute.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(16.dp))
             }
         }
@@ -574,7 +602,7 @@ private fun PlanEmptyState(modifier: Modifier = Modifier) {
             MampfiEmptyMascot(Modifier.size(96.dp))
             Spacer(Modifier.height(12.dp))
             Text("Noch nichts geplant", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("Plane deine erste Mahlzeit für heute.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Plant eure erste Mahlzeit für heute.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
