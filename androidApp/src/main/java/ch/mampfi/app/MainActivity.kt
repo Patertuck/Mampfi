@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
 
             when {
                 settings == null -> {
-                    MampfiTheme(settings?.themeMode ?: ThemeMode.SYSTEM) {
+                    MampfiTheme(settings?.themeMode ?: ThemeMode.DARK) {
                         StartupLoadingScreen(
                             message = "Mampfi wird geladen …",
                             revealDetails = revealStartupDetails.value,

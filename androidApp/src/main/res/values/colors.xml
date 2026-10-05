@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="mampfi_background">#2F6B45</color>
+    <color name="mampfi_background">#087F5B</color>
     <color name="mampfi_loading_indicator">#FFD15C</color>
     <color name="mampfi_loading_text">#FFF2CF</color>
 </resources>

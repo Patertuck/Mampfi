@@ -22,7 +22,7 @@ data class EndpointSettings(
     val tailscaleBaseUrl: String = "",
     val firstRaterName: String = DEFAULT_FIRST_RATER_NAME,
     val secondRaterName: String = DEFAULT_SECOND_RATER_NAME,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeMode: ThemeMode = ThemeMode.DARK,
 ) {
     val isConfigured: Boolean get() = lanBaseUrl.isNotBlank()
 }
@@ -73,7 +73,7 @@ class EndpointSettingsStore(private val context: Context) {
             tailscaleBaseUrl = preferences[TAILSCALE_BASE_URL].orEmpty(),
             firstRaterName = preferences[FIRST_RATER_NAME] ?: DEFAULT_FIRST_RATER_NAME,
             secondRaterName = preferences[SECOND_RATER_NAME] ?: DEFAULT_SECOND_RATER_NAME,
-            themeMode = preferences[THEME_MODE]?.let { value -> runCatching { ThemeMode.valueOf(value) }.getOrNull() } ?: ThemeMode.SYSTEM,
+            themeMode = preferences[THEME_MODE]?.let { value -> runCatching { ThemeMode.valueOf(value) }.getOrNull() } ?: ThemeMode.DARK,
         )
     }
 }

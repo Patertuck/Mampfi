@@ -11,7 +11,7 @@ class EndpointSettingsTest {
 
         assertEquals("Person 1", settings.firstRaterName)
         assertEquals("Person 2", settings.secondRaterName)
-        assertEquals(ThemeMode.SYSTEM, settings.themeMode)
+        assertEquals(ThemeMode.DARK, settings.themeMode)
     }
 
     @Test
