@@ -23,7 +23,15 @@ private enum class ConnectionCheckState { IDLE, TESTING, CONNECTED, UNAVAILABLE,
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EndpointSetupScreen(store: EndpointSettingsStore, configured: Boolean = false, saved: () -> Unit = {}) {
+fun EndpointSetupScreen(
+    store: EndpointSettingsStore,
+    configured: Boolean = false,
+    updateState: UpdateState? = null,
+    checkForUpdate: () -> Unit = {},
+    downloadUpdate: () -> Unit = {},
+    installUpdate: () -> Unit = {},
+    saved: () -> Unit = {},
+) {
     val settings by store.settings.collectAsState(initial = null)
     var lanUrl by remember { mutableStateOf("") }
     var tailscaleUrl by remember { mutableStateOf("") }
@@ -136,6 +144,35 @@ fun EndpointSetupScreen(store: EndpointSettingsStore, configured: Boolean = fals
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Aktuelle Version", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(BuildConfig.VERSION_NAME, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            }
+            when (val state = updateState) {
+                UpdateState.Checking -> {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text("Updates werden geprüft …", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                is UpdateState.Available -> {
+                    Text("Version ${state.update.version} ist verfügbar.", fontWeight = FontWeight.Medium)
+                    state.update.changelog.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    Button(downloadUpdate, Modifier.fillMaxWidth()) { Text("Herunterladen") }
+                }
+                is UpdateState.Downloading -> {
+                    if (state.progress == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(progress = { state.progress / 100f }, modifier = Modifier.fillMaxWidth())
+                    Text(state.progress?.let { "Wird heruntergeladen: $it %" } ?: "Download wird vorbereitet …", style = MaterialTheme.typography.bodySmall)
+                }
+                is UpdateState.Ready -> Button(installUpdate, Modifier.fillMaxWidth()) { Text("Version ${state.update.version} installieren") }
+                is UpdateState.Failed -> {
+                    Text(state.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(
+                        onClick = if (state.update == null) checkForUpdate else downloadUpdate,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Erneut versuchen") }
+                }
+                is UpdateState.UpToDate -> if (state.checked) Text("Mampfi ist aktuell.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                null -> Unit
+            }
+            if (updateState !is UpdateState.Checking && updateState !is UpdateState.Downloading) {
+                TextButton(checkForUpdate, Modifier.fillMaxWidth()) { Text("Nach Updates suchen") }
             }
         }
 

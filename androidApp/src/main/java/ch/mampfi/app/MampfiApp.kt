@@ -11,31 +11,27 @@ import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.ViewList
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.*
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
 import java.time.LocalDate
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @Composable
-fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpointStore: EndpointSettingsStore, themeMode: ThemeMode = ThemeMode.DARK) = MampfiTheme(themeMode) {
+fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpointStore: EndpointSettingsStore, themeMode: ThemeMode = ThemeMode.DARK, updateVm: UpdateViewModel = viewModel()) = MampfiTheme(themeMode) {
     val nav = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
-    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val updater = remember(context) { AppUpdater(context) }
-    val updateScope = rememberCoroutineScope()
-    var availableUpdate by remember { mutableStateOf<AvailableUpdate?>(null) }
-    var updateDownloadProgress by remember { mutableStateOf<Int?>(null) }
-    var updateDownloadError by remember { mutableStateOf<String?>(null) }
+    val updateState by updateVm.state.collectAsState()
+    var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
     val currentRoute = nav.currentBackStackEntryAsState().value?.destination?.route
     val topLevelRoutes = remember { setOf("kalender", "ideen", "uebersicht", "einstellungen") }
     val appSettings by endpointStore.settings.collectAsState(initial = EndpointSettings())
@@ -43,7 +39,7 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
     DisposableEffect(lifecycleOwner, vm) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> vm.startForegroundRefresh()
+                Lifecycle.Event.ON_RESUME -> { vm.startForegroundRefresh(); updateVm.onResume() }
                 Lifecycle.Event.ON_PAUSE -> vm.stopForegroundRefresh()
                 else -> Unit
             }
@@ -59,14 +55,20 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
     LaunchedEffect(connectedViaTailscale) {
         if (connectedViaTailscale) snackbar.showSnackbar("Verbunden über Tailscale")
     }
-    LaunchedEffect(Unit) {
-        if (BuildConfig.UPDATE_METADATA_URL.isNotBlank()) {
-            availableUpdate = withContext(Dispatchers.IO) { updater.checkForUpdate(BuildConfig.UPDATE_METADATA_URL) }
-        }
-    }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        topBar = { SyncStatusBar(syncStatus, vm::refresh) },
+        topBar = {
+            Column {
+                UpdateBanner(
+                    state = updateState,
+                    dismissedVersion = dismissedUpdateVersion,
+                    dismiss = { dismissedUpdateVersion = it },
+                    download = updateVm::download,
+                    install = updateVm::install,
+                )
+                SyncStatusBar(syncStatus, vm::refresh)
+            }
+        },
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             if (currentRoute in topLevelRoutes) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 8.dp) {
@@ -113,7 +115,14 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
                 isRefreshing = syncStatus.isRefreshing,
                 refresh = vm::refresh,
             ) }
-            composable("einstellungen") { EndpointSetupScreen(endpointStore, configured = true) { nav.popBackStack() } }
+            composable("einstellungen") { EndpointSetupScreen(
+                store = endpointStore,
+                configured = true,
+                updateState = updateState,
+                checkForUpdate = updateVm::checkForUpdate,
+                downloadUpdate = updateVm::download,
+                installUpdate = updateVm::install,
+            ) { nav.popBackStack() } }
             composable("idee?meal={meal}") { entry -> IdeaEditScreen(
                 vm = vm,
                 mealId = entry.arguments?.getString("meal"),
@@ -149,32 +158,47 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
             composable("bearbeiten/{date}?meal={meal}&entry={entry}") { entry -> EditScreen(vm, LocalDate.parse(entry.arguments!!.getString("date")!!), entry.arguments?.getString("meal"), entry.arguments?.getString("entry"), appSettings.firstRaterName, appSettings.secondRaterName, vm.awayEntries.collectAsState().value) { nav.popBackStack() } }
         }
     }
-    availableUpdate?.let { update ->
-        UpdateAvailableDialog(
-            version = update.version,
-            progress = updateDownloadProgress,
-            dismiss = { if (updateDownloadProgress == null) availableUpdate = null },
-            download = {
-                updateDownloadProgress = 0
-                updateScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) {
-                            updater.downloadApk(update.apkUrl, "mampfi-${update.version.filter { it.isLetterOrDigit() || it == '.' }}") { progress ->
-                                updateDownloadProgress = progress
-                            }
-                        }
-                    } catch (_: Exception) {
-                        updateDownloadProgress = null
-                        updateDownloadError = "Update konnte nicht heruntergeladen werden."
-                    }
+}
+
+@Composable
+private fun UpdateBanner(state: UpdateState, dismissedVersion: String?, dismiss: (String) -> Unit, download: () -> Unit, install: () -> Unit) {
+    val update = when (state) {
+        is UpdateState.Available -> state.update
+        is UpdateState.Downloading -> state.update
+        is UpdateState.Ready -> state.update
+        is UpdateState.Failed -> state.update
+        else -> null
+    } ?: return
+    if (dismissedVersion == update.version && state !is UpdateState.Downloading && state !is UpdateState.Ready) return
+    Surface(color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Icon(Icons.Outlined.SystemUpdate, contentDescription = null)
+                Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                    Text(
+                        when (state) {
+                            is UpdateState.Available -> "Mampfi ${update.version} ist verfügbar"
+                            is UpdateState.Downloading -> "Update wird heruntergeladen"
+                            is UpdateState.Ready -> "Update ist bereit"
+                            is UpdateState.Failed -> state.message
+                            else -> ""
+                        },
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    )
+                    if (update.changelog.isNotBlank() && state is UpdateState.Available) Text(update.changelog, style = MaterialTheme.typography.bodySmall, maxLines = 2)
                 }
-            },
-        )
-    }
-    updateDownloadError?.let { error ->
-        LaunchedEffect(error) {
-            snackbar.showSnackbar(error)
-            updateDownloadError = null
+                when (state) {
+                    is UpdateState.Available, is UpdateState.Failed -> IconButton(download) { Icon(Icons.Outlined.Download, "Herunterladen") }
+                    is UpdateState.Ready -> TextButton(install) { Text("Installieren") }
+                    else -> Unit
+                }
+                if (state is UpdateState.Available || state is UpdateState.Failed) IconButton({ dismiss(update.version) }) { Icon(Icons.Outlined.Close, "Später") }
+            }
+            if (state is UpdateState.Downloading) {
+                if (state.progress == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                else LinearProgressIndicator(progress = { state.progress / 100f }, modifier = Modifier.fillMaxWidth())
+                state.progress?.let { Text("$it %", style = MaterialTheme.typography.labelSmall) }
+            }
         }
     }
 }

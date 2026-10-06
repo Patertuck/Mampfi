@@ -95,6 +95,12 @@ jobs:
         run: |
           APK_PATH="androidApp/build/outputs/apk/release/androidApp-release.apk"
           APK_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/mampfi-$VERSION_NAME.apk"
-          printf '{\n  "latest_version": "%s",\n  "changelog": "",\n  "apk_url": "%s"\n}\n' "$VERSION_NAME" "$APK_URL" > update.json
+          CHANGELOG=$(git log -1 --pretty=%s)
+          jq -n \
+            --arg version "$VERSION_NAME" \
+            --arg changelog "$CHANGELOG" \
+            --arg apkUrl "$APK_URL" \
+            '{latest_version: $version, changelog: $changelog, apk_url: $apkUrl}' > update.json
+          jq -e '.latest_version and .apk_url and (.changelog | type == "string")' update.json >/dev/null
           cp "$APK_PATH" "mampfi-$VERSION_NAME.apk"
           gh release create "$TAG" "mampfi-$VERSION_NAME.apk#Mampfi APK" "update.json#Update manifest" --title "Mampfi $VERSION_NAME" --generate-notes

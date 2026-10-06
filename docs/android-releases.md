@@ -2,7 +2,7 @@
 
 The app does not contain LAN or Tailscale addresses. Each phone asks for them at its first launch and stores them privately on that device. They can later be changed through **Einstellungen** in the app.
 
-Every push to `main` runs `.github/workflows/android-release.yml`. A successful run creates a signed APK and a GitHub Release containing an `update.json` manifest. On launch, a release APK checks the latest manifest and offers to download a newer version.
+Every push to `main` runs `.github/workflows/android-release.yml`. A successful run creates a signed APK and a GitHub Release containing an `update.json` manifest. On launch, a release APK checks the latest manifest and shows a non-blocking banner when a newer version exists. The download continues through Android's download manager while the app remains usable; its progress and the finished installer remain available under **Einstellungen → App-Informationen**.
 
 ## One-time signing setup
 
@@ -25,4 +25,4 @@ Add these repository secrets in GitHub:
 - `ANDROID_KEYSTORE_PASSWORD`
 - `ANDROID_KEY_ALIAS`
 
-Install the first GitHub Release APK manually on each phone. Android will ask for permission to allow Mampfi to install updates; future updates remain user-approved and finish in Android's system installer.
+Install the first GitHub Release APK manually on each phone. Android will ask for permission to allow Mampfi to install updates the first time it is needed. Mampfi opens that app-specific permission page and continues with the pending installer after returning. Future updates remain user-approved and finish in Android's system installer.
