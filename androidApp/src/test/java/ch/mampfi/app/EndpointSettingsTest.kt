@@ -19,4 +19,16 @@ class EndpointSettingsTest {
         assertEquals("First person", EndpointSettingsStore.normalizeRaterName("  First person  "))
         assertFailsWith<IllegalArgumentException> { EndpointSettingsStore.normalizeRaterName("   ") }
     }
+
+    @Test
+    fun `endpoint is normalized before connection testing or saving`() {
+        assertEquals("http://192.168.1.50:8080/", EndpointSettingsStore.normalizeEndpoint(" http://192.168.1.50:8080 "))
+        assertEquals("https://mampfi.example/", EndpointSettingsStore.normalizeEndpoint("https://mampfi.example/"))
+    }
+
+    @Test
+    fun `endpoint rejects unsupported or incomplete addresses`() {
+        assertFailsWith<IllegalArgumentException> { EndpointSettingsStore.normalizeEndpoint("mampfi.example") }
+        assertFailsWith<IllegalArgumentException> { EndpointSettingsStore.normalizeEndpoint("ftp://mampfi.example") }
+    }
 }

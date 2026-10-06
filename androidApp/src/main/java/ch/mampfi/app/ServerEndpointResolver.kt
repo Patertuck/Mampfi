@@ -13,6 +13,10 @@ object ServerEndpointResolver {
         ApiConfig.candidates(settings).firstOrNull(::isReachable) ?: settings.lanBaseUrl
     }
 
+    suspend fun check(baseUrl: String): Boolean = withContext(Dispatchers.IO) {
+        isReachable(baseUrl)
+    }
+
     private fun isReachable(baseUrl: String): Boolean = runCatching {
         client.newCall(Request.Builder().url("${baseUrl}api/mahlzeiten").build()).execute().use { it.isSuccessful }
     }.getOrDefault(false)

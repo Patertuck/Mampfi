@@ -1,36 +1,25 @@
 package ch.mampfi.app
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import androidx.compose.runtime.rememberCoroutineScope
+
+private enum class ConnectionCheckState { IDLE, TESTING, CONNECTED, UNAVAILABLE, INVALID }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,7 +31,10 @@ fun EndpointSetupScreen(store: EndpointSettingsStore, configured: Boolean = fals
     var secondRaterName by remember { mutableStateOf(DEFAULT_SECOND_RATER_NAME) }
     var error by remember { mutableStateOf<String?>(null) }
     var initialized by remember { mutableStateOf(false) }
+    var lanCheck by remember { mutableStateOf(ConnectionCheckState.IDLE) }
+    var tailscaleCheck by remember { mutableStateOf(ConnectionCheckState.IDLE) }
     val scope = rememberCoroutineScope()
+
     LaunchedEffect(settings) {
         if (!initialized && settings != null) {
             lanUrl = settings!!.lanBaseUrl
@@ -52,48 +44,43 @@ fun EndpointSetupScreen(store: EndpointSettingsStore, configured: Boolean = fals
             initialized = true
         }
     }
+
+    fun resetConnectionChecks() {
+        lanCheck = ConnectionCheckState.IDLE
+        tailscaleCheck = ConnectionCheckState.IDLE
+    }
+    suspend fun checkAddress(value: String): ConnectionCheckState {
+        val normalized = runCatching { EndpointSettingsStore.normalizeEndpoint(value) }.getOrNull()
+            ?: return ConnectionCheckState.INVALID
+        return if (ServerEndpointResolver.check(normalized)) ConnectionCheckState.CONNECTED else ConnectionCheckState.UNAVAILABLE
+    }
+    fun testConnections() {
+        scope.launch {
+            lanCheck = ConnectionCheckState.TESTING
+            tailscaleCheck = if (tailscaleUrl.isBlank()) ConnectionCheckState.IDLE else ConnectionCheckState.TESTING
+            coroutineScope {
+                val lanResult = async { checkAddress(lanUrl) }
+                val tailscaleResult = tailscaleUrl.takeIf { it.isNotBlank() }?.let { value -> async { checkAddress(value) } }
+                lanCheck = lanResult.await()
+                tailscaleCheck = tailscaleResult?.await() ?: ConnectionCheckState.IDLE
+            }
+        }
+    }
+
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.Center,
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(if (configured) "Einstellungen" else "Mampfi einrichten", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(8.dp))
+        Text(if (configured) "Einstellungen" else "Mampfi einrichten", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text(
-            if (configured) "Ändere die Verbindung und die Namen für eure Bewertungen."
-            else "Gib die Server-Adressen für dieses Telefon ein. Sie werden nur auf diesem Gerät gespeichert.",
+            if (configured) "Passt Mampfi an eure Nutzung an."
+            else "Gebt die Server-Adressen und eure Namen für dieses Telefon ein.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(24.dp))
-        OutlinedTextField(
-            value = lanUrl,
-            onValueChange = { lanUrl = it; error = null },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("LAN-Adresse") },
-            placeholder = { Text("http://192.168.1.50:8080") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            singleLine = true,
-            isError = error != null,
-        )
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = tailscaleUrl,
-            onValueChange = { tailscaleUrl = it; error = null },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Tailscale-Adresse (optional)") },
-            placeholder = { Text("http://mampfi.tailnet.ts.net:8080") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            singleLine = true,
-        )
-        if (configured) {
-            Spacer(Modifier.height(24.dp))
-            Text("Darstellung", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(12.dp))
+
+        if (configured) FormSection("Darstellung") {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                listOf(
-                    ThemeMode.SYSTEM to "System",
-                    ThemeMode.LIGHT to "Hell",
-                    ThemeMode.DARK to "Dunkel",
-                ).forEachIndexed { index, (mode, label) ->
+                listOf(ThemeMode.SYSTEM to "System", ThemeMode.LIGHT to "Hell", ThemeMode.DARK to "Dunkel").forEachIndexed { index, (mode, label) ->
                     SegmentedButton(
                         selected = settings?.themeMode == mode,
                         onClick = { scope.launch { store.setThemeMode(mode) } },
@@ -103,28 +90,56 @@ fun EndpointSetupScreen(store: EndpointSettingsStore, configured: Boolean = fals
                 }
             }
         }
-        Spacer(Modifier.height(24.dp))
-        Text("Personen für Bewertungen", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = firstRaterName,
-            onValueChange = { firstRaterName = it; error = null },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Person 1") },
-            singleLine = true,
-            isError = error != null && firstRaterName.isBlank(),
-        )
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = secondRaterName,
-            onValueChange = { secondRaterName = it; error = null },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Person 2") },
-            singleLine = true,
-            isError = error != null && secondRaterName.isBlank(),
-        )
-        error?.let { Text(it, modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.error) }
-        Spacer(Modifier.height(20.dp))
+
+        FormSection("Personen") {
+            Text("Diese Namen erscheinen bei Bewertungen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            RaterNameField(firstRaterName, { firstRaterName = it; error = null }, "Person 1", error != null && firstRaterName.isBlank())
+            RaterNameField(secondRaterName, { secondRaterName = it; error = null }, "Person 2", error != null && secondRaterName.isBlank())
+        }
+
+        FormSection("Verbindung") {
+            OutlinedTextField(
+                value = lanUrl,
+                onValueChange = { lanUrl = it; error = null; resetConnectionChecks() },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("LAN-Adresse") },
+                placeholder = { Text("http://192.168.1.50:8080") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                singleLine = true,
+                isError = error != null || lanCheck == ConnectionCheckState.INVALID,
+                supportingText = { ConnectionCheckText(lanCheck) },
+            )
+            OutlinedTextField(
+                value = tailscaleUrl,
+                onValueChange = { tailscaleUrl = it; error = null; resetConnectionChecks() },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Tailscale-Adresse (optional)") },
+                placeholder = { Text("http://mampfi.tailnet.ts.net:8080") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                singleLine = true,
+                isError = tailscaleCheck == ConnectionCheckState.INVALID,
+                supportingText = { ConnectionCheckText(tailscaleCheck) },
+            )
+            OutlinedButton(
+                onClick = ::testConnections,
+                enabled = lanCheck != ConnectionCheckState.TESTING && tailscaleCheck != ConnectionCheckState.TESTING,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (lanCheck == ConnectionCheckState.TESTING || tailscaleCheck == ConnectionCheckState.TESTING) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Icon(Icons.Outlined.Refresh, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Verbindung testen")
+            }
+        }
+
+        if (configured) FormSection("App-Informationen") {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Aktuelle Version", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(BuildConfig.VERSION_NAME, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(
             onClick = {
                 scope.launch {
@@ -133,16 +148,42 @@ fun EndpointSetupScreen(store: EndpointSettingsStore, configured: Boolean = fals
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("Speichern und verbinden") }
-        if (configured) {
-            Spacer(Modifier.height(20.dp))
-            Text(
-                text = "Version ${BuildConfig.VERSION_NAME}",
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelMedium,
-                textAlign = TextAlign.Center,
-            )
+        ) { Text(if (configured) "Speichern" else "Speichern und verbinden") }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun RaterNameField(value: String, update: (String) -> Unit, label: String, isError: Boolean) = OutlinedTextField(
+    value = value,
+    onValueChange = update,
+    modifier = Modifier.fillMaxWidth(),
+    label = { Text(label) },
+    singleLine = true,
+    isError = isError,
+)
+
+@Composable
+private fun ConnectionCheckText(state: ConnectionCheckState) {
+    val message = when (state) {
+        ConnectionCheckState.IDLE -> return
+        ConnectionCheckState.TESTING -> "Verbindung wird geprüft …"
+        ConnectionCheckState.CONNECTED -> "Verbindung erfolgreich"
+        ConnectionCheckState.UNAVAILABLE -> "Server nicht erreichbar"
+        ConnectionCheckState.INVALID -> "Ungültige Server-Adresse"
+    }
+    val color = when (state) {
+        ConnectionCheckState.CONNECTED -> MaterialTheme.colorScheme.primary
+        ConnectionCheckState.UNAVAILABLE, ConnectionCheckState.INVALID -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        when (state) {
+            ConnectionCheckState.CONNECTED -> Icon(Icons.Outlined.CheckCircle, null, Modifier.size(16.dp), tint = color)
+            ConnectionCheckState.UNAVAILABLE, ConnectionCheckState.INVALID -> Icon(Icons.Outlined.ErrorOutline, null, Modifier.size(16.dp), tint = color)
+            else -> Unit
         }
+        if (state in setOf(ConnectionCheckState.CONNECTED, ConnectionCheckState.UNAVAILABLE, ConnectionCheckState.INVALID)) Spacer(Modifier.width(4.dp))
+        Text(message, color = color)
     }
 }
