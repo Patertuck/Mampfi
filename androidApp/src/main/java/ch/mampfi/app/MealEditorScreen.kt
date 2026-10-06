@@ -11,13 +11,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,9 +26,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import ch.mampfi.app.data.*
 import coil3.compose.AsyncImage
@@ -198,11 +202,16 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
     var name by remember(selectedMeal) { mutableStateOf(selectedMeal?.name ?: "") }; var link by remember(selectedMeal) { mutableStateOf(selectedMeal?.rezeptLink ?: "") }
     var note by remember(selectedMeal) { mutableStateOf(selectedMeal?.notiz.orEmpty()) }
     var tags by remember(selectedMeal) { mutableStateOf(selectedMeal?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet()) }
-    val existingRating = existingEntry?.bewertung; var ratingOne by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(0)?.toString().orEmpty()) }; var ratingTwo by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(1)?.toString().orEmpty()) }
+    val existingRating = existingEntry?.bewertung
+    var ratingOne by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(0)?.toString().orEmpty()) }
+    var ratingTwo by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(1)?.toString().orEmpty()) }
     var selectedDateEpochDay by rememberSaveable(date) { mutableLongStateOf(date.toEpochDay()) }; var expanded by remember { mutableStateOf(false) }; var confirmDelete by remember { mutableStateOf(false) }; var pendingImage by remember { mutableStateOf<PendingEntryImage?>(null) }
     var galleryImageUrl by remember { mutableStateOf<String?>(null) }; var confirmDiscard by remember { mutableStateOf(false) }
     var validationRequested by remember { mutableStateOf(false) }; var saving by remember { mutableStateOf(false) }
     val context = LocalContext.current; val selectedDate = LocalDate.ofEpochDay(selectedDateEpochDay)
+    val focusManager = LocalFocusManager.current
+    val firstRatingFocus = remember { FocusRequester() }
+    val secondRatingFocus = remember { FocusRequester() }
     val blockedDates = awayEntries.mapNotNull { runCatching { LocalDate.parse(it.datum) }.getOrNull() }.toSet()
     val dateBlocked = selectedDate in blockedDates
     val validation = validateMealForm(name, ratingOne, ratingTwo)
@@ -259,21 +268,25 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
         item { FormSection("Mahlzeit") { OutlinedTextField(name, { value -> name = if ('\n' in value || '\r' in value) normalizePastedMealName(value) else value; expanded = name.isNotBlank() && existingEntry == null }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), isError = validationRequested && validation.nameError != null, supportingText = if (validationRequested && validation.nameError != null) {{ Text(validation.nameError!!) }} else null); if (expanded) meals.filter { it.name.contains(name, true) }.take(5).forEach { meal -> Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { chosen = meal; name = meal.name; link = meal.rezeptLink.orEmpty(); note = meal.notiz.orEmpty(); tags = meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags(); expanded = false }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { meal.letztesBild()?.let { AsyncImage(it, null, Modifier.size(42.dp).clip(MaterialTheme.shapes.small)) }; Column(Modifier.padding(start = 10.dp)) { Text(meal.name, fontWeight = FontWeight.Bold); Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "Noch nicht bewertet", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }; RecipeLinkField(link, selectedMeal != null || chosen != null) { link = it }; OutlinedTextField(note, { note = it }, label = { Text("Notiz (optional)") }, placeholder = { Text("z. B. Änderungen am Rezept") }, modifier = Modifier.fillMaxWidth(), minLines = 3, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)) } }
         item { FormSection("Eigenschaften") { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Tag.entries.forEach { tag -> FilterChip(tag in tags, { tags = tags.toggleMealTag(tag) }, { Text(tag.label) }) } } } }
         item { FormSection("Bewertung") {
-            if (ratingOne.isBlank() && ratingTwo.isBlank()) {
-                Text("Optional könnt ihr das Essen gemeinsam bewerten.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedButton(
-                    onClick = { ratingOne = "5.0"; ratingTwo = "5.0" },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Bewertung hinzufügen") }
-            } else {
-                QuarterRatingControl(ratingOne, { ratingOne = it }, firstRaterName, MaterialTheme.colorScheme.primary)
-                QuarterRatingControl(ratingTwo, { ratingTwo = it }, secondRaterName, MaterialTheme.colorScheme.tertiary)
-                TextButton(
-                    onClick = { ratingOne = ""; ratingTwo = "" },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
-                ) { Text("Bewertung entfernen") }
-            }
+            Text("Wenn ihr das Essen bewertet, gebt beide Bewertungen ein.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            RaterScoreField(
+                ratingOne,
+                { ratingOne = it },
+                firstRaterName,
+                MaterialTheme.colorScheme.primary,
+                if (validationRequested) validation.firstRatingError else null,
+                Modifier.focusRequester(firstRatingFocus),
+                if (ratingTwo.isBlank()) ImeAction.Next else ImeAction.Done,
+            ) { if (ratingTwo.isBlank()) secondRatingFocus.requestFocus() else focusManager.clearFocus() }
+            RaterScoreField(
+                ratingTwo,
+                { ratingTwo = it },
+                secondRaterName,
+                MaterialTheme.colorScheme.tertiary,
+                if (validationRequested) validation.secondRatingError else null,
+                Modifier.focusRequester(secondRatingFocus),
+                if (ratingOne.isBlank()) ImeAction.Next else ImeAction.Done,
+            ) { if (ratingOne.isBlank()) firstRatingFocus.requestFocus() else focusManager.clearFocus() }
         } }
         item { FormSection("Termin") {
             MealDateSelector(selectedDate, blockedDates) { selectedDateEpochDay = it.toEpochDay() }
@@ -332,32 +345,32 @@ private fun ExistingEntryImagePager(entry: MahlzeitEintrag, openGallery: (String
 }
 
 @Composable
-private fun QuarterRatingControl(value: String, update: (String) -> Unit, name: String, accent: Color) {
-    val numericValue = value.replace(',', '.').toDoubleOrNull()?.coerceIn(1.0, 10.0) ?: 5.0
-    Surface(color = accent.copy(alpha = 0.10f), shape = MaterialTheme.shapes.medium) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(String.format(Locale.GERMANY, "%.2f", numericValue), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = accent)
-            }
-            Slider(
-                value = numericValue.toFloat(),
-                onValueChange = { update(ratingInputValue(it.toDouble())) },
-                valueRange = 1f..10f,
-                steps = 35,
-                colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                FilledTonalIconButton(
-                    onClick = { update(ratingInputValue(adjustRatingByQuarter(numericValue, -1))) },
-                    enabled = numericValue > 1.0,
-                ) { Icon(Icons.Outlined.Remove, contentDescription = "$name um 0,25 verringern") }
-                Text("1,00 – 10,00 · Schritte von 0,25", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FilledTonalIconButton(
-                    onClick = { update(ratingInputValue(adjustRatingByQuarter(numericValue, 1))) },
-                    enabled = numericValue < 10.0,
-                ) { Icon(Icons.Outlined.Add, contentDescription = "$name um 0,25 erhöhen") }
-            }
-        }
-    }
+private fun RaterScoreField(
+    value: String,
+    update: (String) -> Unit,
+    name: String,
+    accent: Color,
+    error: String?,
+    modifier: Modifier,
+    imeAction: ImeAction,
+    submit: () -> Unit,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = update,
+        label = { Text("$name (1,00–10,00)") },
+        modifier = modifier.fillMaxWidth(),
+        singleLine = true,
+        isError = error != null,
+        supportingText = if (error != null) {{ Text(error) }} else null,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = imeAction),
+        keyboardActions = KeyboardActions(onNext = { submit() }, onDone = { submit() }),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = accent,
+            unfocusedBorderColor = accent.copy(alpha = 0.7f),
+            focusedLabelColor = accent,
+            unfocusedLabelColor = accent,
+            cursorColor = accent,
+        ),
+    )
 }
