@@ -35,3 +35,10 @@ internal fun validateMealForm(name: String, firstRating: String = "", secondRati
         ratings = if (firstError == null && secondError == null) listOf(first!!, second!!) else null,
     )
 }
+
+internal fun adjustRatingByQuarter(value: Double, direction: Int): Double {
+    val quarter = kotlin.math.round(value * 4).toInt() + direction.coerceIn(-1, 1)
+    return (quarter / 4.0).coerceIn(1.0, 10.0)
+}
+
+internal fun ratingInputValue(value: Double): String = value.toString()

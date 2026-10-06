@@ -42,4 +42,12 @@ class MealFormValidationTest {
         assertEquals("Bitte gib eine Zahl von 1 bis 10 ein.", invalid.firstRatingError)
         assertEquals("Bitte gib eine Zahl von 1 bis 10 ein.", invalid.secondRatingError)
     }
+
+    @Test
+    fun `rating adjustment snaps to quarter steps and respects bounds`() {
+        assertEquals(7.5, adjustRatingByQuarter(7.3, 1))
+        assertEquals(7.0, adjustRatingByQuarter(7.3, -1))
+        assertEquals(1.0, adjustRatingByQuarter(1.0, -1))
+        assertEquals(10.0, adjustRatingByQuarter(10.0, 1))
+    }
 }
