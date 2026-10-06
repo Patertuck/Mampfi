@@ -138,6 +138,17 @@ fun EndpointSetupScreen(
                 Spacer(Modifier.width(8.dp))
                 Text("Verbindung testen")
             }
+            HorizontalDivider(Modifier.padding(vertical = 2.dp))
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            Button(
+                onClick = {
+                    scope.launch {
+                        error = runCatching { store.save(lanUrl, tailscaleUrl, firstRaterName, secondRaterName) }.exceptionOrNull()?.message
+                        if (error == null) saved()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (configured) "Verbindung und Namen speichern" else "Speichern und verbinden") }
         }
 
         if (configured) FormSection("App-Informationen") {
@@ -176,16 +187,6 @@ fun EndpointSetupScreen(
             }
         }
 
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Button(
-            onClick = {
-                scope.launch {
-                    error = runCatching { store.save(lanUrl, tailscaleUrl, firstRaterName, secondRaterName) }.exceptionOrNull()?.message
-                    if (error == null) saved()
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (configured) "Speichern" else "Speichern und verbinden") }
         Spacer(Modifier.height(8.dp))
     }
 }
