@@ -56,6 +56,10 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
         if (connectedViaTailscale) snackbar.showSnackbar("Verbunden über Tailscale")
     }
     Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .safeDrawingPadding(),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Column {

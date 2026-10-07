@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -142,7 +143,8 @@ private fun StartupLoadingScreen(message: String, revealDetails: Boolean) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(colorResource(R.color.mampfi_background)),
+            .background(colorResource(R.color.mampfi_background))
+            .safeDrawingPadding(),
     ) {
         Image(
             painter = painterResource(R.drawable.mampfi_splash_mascot),
