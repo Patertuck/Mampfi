@@ -809,10 +809,23 @@ private fun PlanDayRow(
             Text(date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.GERMAN), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = if (today) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
         }
-        Column(Modifier.weight(1f).heightIn(min = 64.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f).heightIn(min = 88.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (awayEntry == null && meals.isEmpty()) {
-                Box(Modifier.fillMaxWidth().heightIn(min = 64.dp), contentAlignment = Alignment.CenterStart) {
-                    Text("Noch nichts geplant", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                Surface(
+                    modifier = Modifier.fillMaxWidth().height(88.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Row(
+                        Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.CalendarMonth, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Noch nichts geplant", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    }
                 }
             }
             awayEntry?.let { entry ->
