@@ -7,9 +7,8 @@ import java.sql.DriverManager
 
 data class DeletedEntry(val imageUrls: List<String>)
 enum class DeleteIdeaResult { DELETED, NOT_FOUND, HAS_ENTRIES }
-class DateBlockedException : IllegalStateException()
-enum class AwayWriteStatus { CREATED, UPDATED, NOT_FOUND, DATE_OCCUPIED, MEALS_EXIST }
-data class AwayWriteResult(val status: AwayWriteStatus, val deletedImageUrls: List<String> = emptyList())
+enum class AwayWriteStatus { CREATED, UPDATED, NOT_FOUND, DATE_OCCUPIED }
+data class AwayWriteResult(val status: AwayWriteStatus)
 
 class MealRepository(private val database: String) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -42,30 +41,24 @@ class MealRepository(private val database: String) {
         while (rows.next()) add(AuswaertsEintrag(rows.getString("id"), rows.getString("datum"), rows.getString("notiz")))
     } } }
 
-    @Synchronized fun createAwayEntry(entry: AuswaertsEintrag, replaceMeals: Boolean): AwayWriteResult = transaction {
+    @Synchronized fun createAwayEntry(entry: AuswaertsEintrag): AwayWriteResult = transaction {
         if (awayDateOccupied(entry.datum)) return@transaction AwayWriteResult(AwayWriteStatus.DATE_OCCUPIED)
-        val mealCount = mealCountOn(entry.datum)
-        if (mealCount > 0 && !replaceMeals) return@transaction AwayWriteResult(AwayWriteStatus.MEALS_EXIST)
-        val images = if (mealCount > 0) removeMealsOn(entry.datum) else emptyList()
         connection.prepareStatement("INSERT INTO auswaerts_eintraege (id, datum, notiz) VALUES (?, ?, ?)").use { statement ->
             statement.setString(1, entry.id); statement.setString(2, entry.datum); statement.setString(3, entry.notiz); statement.executeUpdate()
         }
-        AwayWriteResult(AwayWriteStatus.CREATED, images)
+        AwayWriteResult(AwayWriteStatus.CREATED)
     }
 
-    @Synchronized fun updateAwayEntry(entry: AuswaertsEintrag, replaceMeals: Boolean): AwayWriteResult = transaction {
+    @Synchronized fun updateAwayEntry(entry: AuswaertsEintrag): AwayWriteResult = transaction {
         val exists = connection.prepareStatement("SELECT 1 FROM auswaerts_eintraege WHERE id = ?").use { statement ->
             statement.setString(1, entry.id); statement.executeQuery().use { it.next() }
         }
         if (!exists) return@transaction AwayWriteResult(AwayWriteStatus.NOT_FOUND)
         if (awayDateOccupied(entry.datum, entry.id)) return@transaction AwayWriteResult(AwayWriteStatus.DATE_OCCUPIED)
-        val mealCount = mealCountOn(entry.datum)
-        if (mealCount > 0 && !replaceMeals) return@transaction AwayWriteResult(AwayWriteStatus.MEALS_EXIST)
-        val images = if (mealCount > 0) removeMealsOn(entry.datum) else emptyList()
         connection.prepareStatement("UPDATE auswaerts_eintraege SET datum = ?, notiz = ? WHERE id = ?").use { statement ->
             statement.setString(1, entry.datum); statement.setString(2, entry.notiz); statement.setString(3, entry.id); statement.executeUpdate()
         }
-        AwayWriteResult(AwayWriteStatus.UPDATED, images)
+        AwayWriteResult(AwayWriteStatus.UPDATED)
     }
 
     @Synchronized fun deleteAwayEntry(id: String): Boolean = connection.prepareStatement(
@@ -73,7 +66,6 @@ class MealRepository(private val database: String) {
     ).use { statement -> statement.setString(1, id); statement.executeUpdate() > 0 }
 
     @Synchronized fun insert(meal: Mahlzeit) = transaction {
-        if (meal.eintraege.any { awayDateOccupied(it.datum) }) throw DateBlockedException()
         connection.prepareStatement("INSERT INTO mahlzeiten (id, name, rezept_link, tags, ist_idee, notiz) VALUES (?, ?, ?, ?, ?, ?)").use { statement ->
             bindMeal(statement, meal)
             statement.executeUpdate()
@@ -108,7 +100,6 @@ class MealRepository(private val database: String) {
 
     @Synchronized fun insertEntry(mealId: String, entry: MahlzeitEintrag): Boolean {
         if (find(mealId) == null) return false
-        if (awayDateOccupied(entry.datum)) throw DateBlockedException()
         insertEntryRow(mealId, entry)
         return true
     }
@@ -116,7 +107,6 @@ class MealRepository(private val database: String) {
     @Synchronized fun updateEntry(mealId: String, entry: MahlzeitEintrag): Boolean = connection.prepareStatement(
         "UPDATE mahlzeit_eintraege SET datum = ?, bewertung = ? WHERE id = ? AND mahlzeit_id = ?",
     ).use { statement ->
-        if (awayDateOccupied(entry.datum)) throw DateBlockedException()
         statement.setString(1, entry.datum)
         statement.setString(2, entry.bewertung?.let { json.encodeToString(it) })
         statement.setString(3, entry.id)
@@ -216,23 +206,6 @@ class MealRepository(private val database: String) {
     ).use { statement ->
         statement.setString(1, date); statement.setString(2, excludingId); statement.setString(3, excludingId)
         statement.executeQuery().use { it.next() }
-    }
-
-    private fun mealCountOn(date: String): Int = connection.prepareStatement(
-        "SELECT COUNT(*) FROM mahlzeit_eintraege WHERE datum = ?",
-    ).use { statement -> statement.setString(1, date); statement.executeQuery().use { it.next(); it.getInt(1) } }
-
-    private fun removeMealsOn(date: String): List<String> {
-        val images = connection.prepareStatement(
-            "SELECT b.url FROM mahlzeit_bilder b JOIN mahlzeit_eintraege e ON e.id = b.eintrag_id WHERE e.datum = ?",
-        ).use { statement -> statement.setString(1, date); statement.executeQuery().use { rows -> buildList {
-            while (rows.next()) add(rows.getString("url"))
-        } } }
-        connection.prepareStatement("DELETE FROM mahlzeit_eintraege WHERE datum = ?").use { statement ->
-            statement.setString(1, date); statement.executeUpdate()
-        }
-        connection.createStatement().use { it.executeUpdate("DELETE FROM mahlzeiten WHERE ist_idee = 0 AND NOT EXISTS (SELECT 1 FROM mahlzeit_eintraege WHERE mahlzeit_id = mahlzeiten.id)") }
-        return images
     }
 
     private fun initializeSchema() {

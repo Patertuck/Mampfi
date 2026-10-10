@@ -69,13 +69,10 @@ fun Application.module(
             post {
                 val entry = call.receive<AuswaertsEintrag>().normalized()
                 validateAwayEntry(entry)?.let { call.respond(HttpStatusCode.BadRequest, it); return@post }
-                val replace = call.request.queryParameters["ersetzen"]?.toBooleanStrictOrNull() ?: false
-                val result = repository.createAwayEntry(entry, replace)
-                result.deletedImageUrls.forEach { deleteUploadedFile(uploads, it) }
+                val result = repository.createAwayEntry(entry)
                 when (result.status) {
                     AwayWriteStatus.CREATED -> call.respond(HttpStatusCode.Created, entry)
                     AwayWriteStatus.DATE_OCCUPIED -> call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "Für dieses Datum ist bereits ein Eintrag vorhanden"))
-                    AwayWriteStatus.MEALS_EXIST -> call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "Für dieses Datum sind Mahlzeiten geplant"))
                     else -> call.respond(HttpStatusCode.InternalServerError)
                 }
             }
@@ -83,14 +80,11 @@ fun Application.module(
                 val id = call.parameters["id"]!!
                 val entry = call.receive<AuswaertsEintrag>().copy(id = id).normalized()
                 validateAwayEntry(entry)?.let { call.respond(HttpStatusCode.BadRequest, it); return@put }
-                val replace = call.request.queryParameters["ersetzen"]?.toBooleanStrictOrNull() ?: false
-                val result = repository.updateAwayEntry(entry, replace)
-                result.deletedImageUrls.forEach { deleteUploadedFile(uploads, it) }
+                val result = repository.updateAwayEntry(entry)
                 when (result.status) {
                     AwayWriteStatus.UPDATED -> call.respond(entry)
                     AwayWriteStatus.NOT_FOUND -> call.respond(HttpStatusCode.NotFound)
                     AwayWriteStatus.DATE_OCCUPIED -> call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "Für dieses Datum ist bereits ein Eintrag vorhanden"))
-                    AwayWriteStatus.MEALS_EXIST -> call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "Für dieses Datum sind Mahlzeiten geplant"))
                     else -> call.respond(HttpStatusCode.InternalServerError)
                 }
             }
@@ -108,8 +102,6 @@ fun Application.module(
                 if (repository.find(meal.id) != null) call.respond(HttpStatusCode.Conflict) else try {
                     repository.insert(meal)
                     call.respond(HttpStatusCode.Created, repository.find(meal.id)!!)
-                } catch (_: DateBlockedException) {
-                    call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "An diesem Datum wird auswärts gegessen"))
                 } catch (error: java.sql.SQLException) {
                     if (error.isConflict()) call.respond(HttpStatusCode.Conflict) else throw error
                 }
@@ -133,8 +125,6 @@ fun Application.module(
                 validateEntry(entry)?.let { call.respond(HttpStatusCode.BadRequest, it); return@post }
                 try {
                     if (repository.insertEntry(mealId, entry)) call.respond(HttpStatusCode.Created, entry) else call.respond(HttpStatusCode.NotFound)
-                } catch (_: DateBlockedException) {
-                    call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "An diesem Datum wird auswärts gegessen"))
                 } catch (error: java.sql.SQLException) {
                     if (error.isConflict()) call.respond(HttpStatusCode.Conflict) else throw error
                 }
@@ -148,8 +138,6 @@ fun Application.module(
                     if (repository.updateEntry(mealId, entry)) {
                         call.respond(repository.find(mealId)!!.eintraege.first { it.id == entryId })
                     } else call.respond(HttpStatusCode.NotFound)
-                } catch (_: DateBlockedException) {
-                    call.respond(HttpStatusCode.Conflict, mapOf("fehler" to "An diesem Datum wird auswärts gegessen"))
                 } catch (error: java.sql.SQLException) {
                     if (error.isConflict()) call.respond(HttpStatusCode.Conflict) else throw error
                 }

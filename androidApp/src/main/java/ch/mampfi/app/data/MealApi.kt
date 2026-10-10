@@ -5,8 +5,8 @@ import retrofit2.http.*
 
 interface MealApi {
     @GET("api/auswaerts") suspend fun allAwayEntries(): List<AuswaertsEintrag>
-    @POST("api/auswaerts") suspend fun createAwayEntry(@Query("ersetzen") replaceMeals: Boolean, @Body entry: AuswaertsEintrag): AuswaertsEintrag
-    @PUT("api/auswaerts/{id}") suspend fun updateAwayEntry(@Path("id") id: String, @Query("ersetzen") replaceMeals: Boolean, @Body entry: AuswaertsEintrag): AuswaertsEintrag
+    @POST("api/auswaerts") suspend fun createAwayEntry(@Body entry: AuswaertsEintrag): AuswaertsEintrag
+    @PUT("api/auswaerts/{id}") suspend fun updateAwayEntry(@Path("id") id: String, @Body entry: AuswaertsEintrag): AuswaertsEintrag
     @DELETE("api/auswaerts/{id}") suspend fun deleteAwayEntry(@Path("id") id: String)
     @GET("api/mahlzeiten") suspend fun all(): List<Mahlzeit>
     @POST("api/mahlzeiten") suspend fun create(@Body meal: Mahlzeit): Mahlzeit

@@ -175,7 +175,7 @@ class MealApiTest {
     }
 
     @Test
-    fun `away entry blocks meals and can atomically replace planned occurrences`() = testApplication {
+    fun `away entries and meals can coexist without deleting occurrences`() = testApplication {
         val dataDirectory = createTempDirectory("mampfi-away-test-").toFile()
         application { module(File(dataDirectory, "mampfi.db").path, File(dataDirectory, "uploads")) }
 
@@ -184,8 +184,8 @@ class MealApiTest {
             contentType(ContentType.Application.Json); setBody(away)
         }.status)
         assertContains(client.get("/api/auswaerts").bodyAsText(), "Bei Anna")
-        assertEquals(HttpStatusCode.Conflict, client.post("/api/mahlzeiten") {
-            contentType(ContentType.Application.Json); setBody("""{"id":"blocked","name":"Pasta","eintraege":[{"datum":"2026-10-02"}]}""")
+        assertEquals(HttpStatusCode.Created, client.post("/api/mahlzeiten") {
+            contentType(ContentType.Application.Json); setBody("""{"id":"coexisting","name":"Pasta","eintraege":[{"datum":"2026-10-02"}]}""")
         }.status)
 
         assertEquals(HttpStatusCode.Created, client.post("/api/mahlzeiten") {
@@ -195,21 +195,21 @@ class MealApiTest {
             contentType(ContentType.Application.Json); setBody("""{"datum":"2026-10-04"}""")
         }.status)
         val replacement = """{"id":"replacement","datum":"2026-10-03"}"""
-        assertEquals(HttpStatusCode.Conflict, client.post("/api/auswaerts") {
-            contentType(ContentType.Application.Json); setBody(replacement)
-        }.status)
         assertEquals(HttpStatusCode.Created, client.post("/api/auswaerts?ersetzen=true") {
             contentType(ContentType.Application.Json); setBody(replacement)
         }.status)
         val remainingMeal = client.get("/api/mahlzeiten/planned")
         assertEquals(HttpStatusCode.OK, remainingMeal.status)
-        assertFalse(remainingMeal.bodyAsText().contains("2026-10-03"))
+        assertContains(remainingMeal.bodyAsText(), "2026-10-03")
         assertContains(remainingMeal.bodyAsText(), "2026-10-04")
 
-        assertEquals(HttpStatusCode.NoContent, client.delete("/api/auswaerts/away").status)
-        assertEquals(HttpStatusCode.Created, client.post("/api/mahlzeiten") {
-            contentType(ContentType.Application.Json); setBody("""{"id":"unblocked","name":"Pasta","eintraege":[{"datum":"2026-10-02"}]}""")
+        assertEquals(HttpStatusCode.OK, client.put("/api/auswaerts/away") {
+            contentType(ContentType.Application.Json); setBody("""{"datum":"2026-10-04","notiz":"Verschoben"}""")
         }.status)
+        assertEquals(HttpStatusCode.Conflict, client.post("/api/auswaerts") {
+            contentType(ContentType.Application.Json); setBody("""{"id":"duplicate","datum":"2026-10-04"}""")
+        }.status)
+        assertContains(client.get("/api/mahlzeiten/planned").bodyAsText(), "2026-10-04")
     }
 
     @Test

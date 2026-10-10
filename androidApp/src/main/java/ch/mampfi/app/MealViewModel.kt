@@ -91,13 +91,13 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
     }
     fun updateEntry(meal: Mahlzeit, entry: MahlzeitEintrag, onComplete: (Boolean) -> Unit = {}) = viewModelScope.launch { repository.updateEntry(meal, entry).notifySave(onComplete) }
     fun deleteEntry(mealId: String, entryId: String) = viewModelScope.launch { repository.deleteEntry(mealId, entryId).onSuccess { _message.emit("Eintrag gelöscht.") }.onFailure { _message.emit("Löschen fehlgeschlagen.") } }
-    fun createAwayEntry(entry: AuswaertsEintrag, replaceMeals: Boolean, onSuccess: () -> Unit) = viewModelScope.launch {
-        repository.createAwayEntry(entry, replaceMeals)
+    fun createAwayEntry(entry: AuswaertsEintrag, onSuccess: () -> Unit) = viewModelScope.launch {
+        repository.createAwayEntry(entry)
             .onSuccess { _message.emit("Auswärts-Eintrag gespeichert."); onSuccess() }
             .onFailure { _message.emit("Speichern fehlgeschlagen. Der Tag wurde möglicherweise inzwischen belegt.") }
     }
-    fun updateAwayEntry(entry: AuswaertsEintrag, replaceMeals: Boolean, onSuccess: () -> Unit) = viewModelScope.launch {
-        repository.updateAwayEntry(entry, replaceMeals)
+    fun updateAwayEntry(entry: AuswaertsEintrag, onSuccess: () -> Unit) = viewModelScope.launch {
+        repository.updateAwayEntry(entry)
             .onSuccess { _message.emit("Auswärts-Eintrag gespeichert."); onSuccess() }
             .onFailure { _message.emit("Speichern fehlgeschlagen. Der Tag wurde möglicherweise inzwischen belegt.") }
     }

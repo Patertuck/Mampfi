@@ -51,8 +51,8 @@ internal fun CalendarScreen(
     meals: List<Mahlzeit>, awayEntries: List<AuswaertsEintrag>, open: (LocalDate) -> Unit,
     recommend: (LocalDate) -> Unit,
     edit: (Mahlzeit, LocalDate) -> Unit,
-    createAway: (AuswaertsEintrag, Boolean, () -> Unit) -> Unit,
-    updateAway: (AuswaertsEintrag, Boolean, () -> Unit) -> Unit,
+    createAway: (AuswaertsEintrag, () -> Unit) -> Unit,
+    updateAway: (AuswaertsEintrag, () -> Unit) -> Unit,
     deleteAway: (String, () -> Unit) -> Unit,
     isRefreshing: Boolean,
     refresh: () -> Unit,
@@ -181,7 +181,7 @@ internal fun CalendarScreen(
                     openGallery = { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl },
                     modifier = Modifier.fillMaxSize(),
                 )
-                if (awayEntries.none { it.datum == selectedDate.toString() }) FloatingActionButton(
+                FloatingActionButton(
                     onClick = { actionDate = selectedDate },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                 ) {
@@ -191,7 +191,7 @@ internal fun CalendarScreen(
         } else {
             Box(Modifier.weight(1f)) {
                 PlanSchedule(planItems, planListState, today, edit, { editingAway = it; creatingAway = false }, { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl }, Modifier.fillMaxSize())
-                if (awayEntries.none { it.datum == today.toString() }) FloatingActionButton(
+                FloatingActionButton(
                     onClick = { actionDate = today },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                 ) {
@@ -255,14 +255,16 @@ internal fun CalendarScreen(
                     icon = Icons.Outlined.AutoAwesome,
                     tint = MaterialTheme.colorScheme.secondary,
                 ) { actionDate = null; recommend(date) }
-                PlanningActionItem(
-                    title = "Auswärts essen",
-                    icon = Icons.Outlined.Restaurant,
-                    tint = MaterialTheme.colorScheme.tertiary,
-                ) {
-                    actionDate = null
-                    editingAway = AuswaertsEintrag(datum = date.toString())
-                    creatingAway = true
+                if (awayEntries.none { it.datum == date.toString() }) {
+                    PlanningActionItem(
+                        title = "Auswärts essen",
+                        icon = Icons.Outlined.Restaurant,
+                        tint = MaterialTheme.colorScheme.tertiary,
+                    ) {
+                        actionDate = null
+                        editingAway = AuswaertsEintrag(datum = date.toString())
+                        creatingAway = true
+                    }
                 }
             }
         }
@@ -271,12 +273,11 @@ internal fun CalendarScreen(
         AwayEntryDialog(
             entry = entry,
             isNew = creatingAway,
-            occupiedMealDates = meals.flatMap { it.termine }.toSet(),
             blockedDates = awayEntries.filterNot { it.id == entry.id }.mapNotNull { runCatching { LocalDate.parse(it.datum) }.getOrNull() }.toSet(),
             dismiss = { editingAway = null },
-            save = { updated, replace ->
+            save = { updated ->
                 val done = { editingAway = null }
-                if (creatingAway) createAway(updated, replace, done) else updateAway(updated, replace, done)
+                if (creatingAway) createAway(updated, done) else updateAway(updated, done)
             },
             delete = if (creatingAway) null else {{ deleteAway(entry.id) { editingAway = null } }},
         )
@@ -340,14 +341,14 @@ internal fun adjacentWeekDate(currentWeekStart: LocalDate, offset: Long, minimum
     currentWeekStart.plusWeeks(offset).takeIf { it in minimum..maximum }
 
 @Composable
-private fun WeekCalendarCell(date: LocalDate, mealCount: Int, blocked: Boolean, selected: Boolean, today: Boolean, select: () -> Unit) {
+private fun WeekCalendarCell(date: LocalDate, mealCount: Int, hasAwayEntry: Boolean, selected: Boolean, today: Boolean, select: () -> Unit) {
     val stateDescription = buildList {
         add(date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM", Locale.GERMAN)))
+        if (hasAwayEntry) add("Auswärts essen")
         when {
-            blocked -> add("Auswärts essen")
             mealCount == 1 -> add("Eine Mahlzeit geplant")
             mealCount > 1 -> add("$mealCount Mahlzeiten geplant")
-            else -> add("Nichts geplant")
+            !hasAwayEntry -> add("Nichts geplant")
         }
         if (today) add("Heute")
         if (selected) add("Ausgewählt")
@@ -369,11 +370,12 @@ private fun WeekCalendarCell(date: LocalDate, mealCount: Int, blocked: Boolean, 
                     Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
             }
-            if (blocked) {
-                Icon(Icons.Outlined.Restaurant, "Auswärts essen", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.secondary)
-            } else if (mealCount > 0) {
-                Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.extraSmall) {
-                    Text(mealCount.toString(), Modifier.padding(horizontal = 6.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (hasAwayEntry) Icon(Icons.Outlined.Restaurant, "Auswärts essen", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.secondary)
+                if (mealCount > 0) {
+                    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.extraSmall) {
+                        Text(mealCount.toString(), Modifier.padding(horizontal = 6.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
                 }
             }
         }
@@ -386,11 +388,13 @@ private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, awayEntry: Auswae
         Column(Modifier.fillMaxSize().padding(16.dp)) {
             Text(date.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM", Locale.GERMAN)), modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             Spacer(Modifier.height(4.dp))
-            Text(if (awayEntry != null) "Auswärts essen" else if (meals.isEmpty()) "Noch nichts geplant" else "${meals.size} ${if (meals.size == 1) "Mahlzeit" else "Mahlzeiten"} geplant", modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            val summary = buildList {
+                if (awayEntry != null) add("Auswärts essen")
+                if (meals.isNotEmpty()) add("${meals.size} ${if (meals.size == 1) "Mahlzeit" else "Mahlzeiten"} geplant")
+            }.joinToString(" · ").ifEmpty { "Noch nichts geplant" }
+            Text(summary, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
-            if (awayEntry != null) {
-                AwayEntryCard(awayEntry) { editAway(awayEntry) }
-            } else if (meals.isEmpty()) {
+            if (awayEntry == null && meals.isEmpty()) {
                 Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     MampfiEmptyMascot(Modifier.size(96.dp))
                     Spacer(Modifier.height(12.dp))
@@ -399,6 +403,7 @@ private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, awayEntry: Auswae
                 }
             } else {
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 72.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    awayEntry?.let { entry -> item(key = "away-${entry.id}") { AwayEntryCard(entry) { editAway(entry) } } }
                     items(meals, key = { it.id }) { meal ->
                         meal.eintraege.firstOrNull { it.datum == date.toString() }?.let { occurrence ->
                             WeekAgendaMealCard(meal, occurrence, { edit(meal) }) { imageUrl -> openGallery(meal, imageUrl) }
@@ -465,15 +470,13 @@ private fun AwayEntryCard(entry: AuswaertsEintrag, click: () -> Unit) = Card(
 private fun AwayEntryDialog(
     entry: AuswaertsEintrag,
     isNew: Boolean,
-    occupiedMealDates: Set<String>,
     blockedDates: Set<LocalDate>,
     dismiss: () -> Unit,
-    save: (AuswaertsEintrag, Boolean) -> Unit,
+    save: (AuswaertsEintrag) -> Unit,
     delete: (() -> Unit)?,
 ) {
     var selectedDateEpochDay by rememberSaveable(entry.id) { mutableLongStateOf(LocalDate.parse(entry.datum).toEpochDay()) }
     var note by rememberSaveable(entry.id) { mutableStateOf(entry.notiz.orEmpty()) }
-    var confirmReplace by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val selectedDate = LocalDate.ofEpochDay(selectedDateEpochDay)
     AlertDialog(
@@ -499,19 +502,9 @@ private fun AwayEntryDialog(
         },
         confirmButton = { Button(onClick = {
             val updated = entry.copy(datum = selectedDate.toString(), notiz = note.trim().ifBlank { null })
-            if (updated.datum in occupiedMealDates) confirmReplace = true else save(updated, false)
+            save(updated)
         }) { Text("Speichern") } },
         dismissButton = { TextButton(onClick = dismiss) { Text("Abbrechen") } },
-    )
-    if (confirmReplace) AlertDialog(
-        onDismissRequest = { confirmReplace = false },
-        title = { Text("Mahlzeiten ersetzen?") },
-        text = { Text("Alle für diesen Tag geplanten Mahlzeiten werden entfernt und der Tag wird als „Auswärts essen“ markiert.") },
-        confirmButton = { TextButton(onClick = {
-            confirmReplace = false
-            save(entry.copy(datum = selectedDate.toString(), notiz = note.trim().ifBlank { null }), true)
-        }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Ersetzen") } },
-        dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("Abbrechen") } },
     )
     if (confirmDelete && delete != null) AlertDialog(
         onDismissRequest = { confirmDelete = false },

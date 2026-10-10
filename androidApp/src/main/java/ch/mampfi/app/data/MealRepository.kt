@@ -18,12 +18,12 @@ class MealRepository(private val api: MealApi, private val dao: MealDao, private
         cache(meals)
         cacheAwayEntries(awayEntries)
     }
-    suspend fun createAwayEntry(entry: AuswaertsEintrag, replaceMeals: Boolean): Result<Unit> = runCatching {
-        api.createAwayEntry(replaceMeals, entry)
+    suspend fun createAwayEntry(entry: AuswaertsEintrag): Result<Unit> = runCatching {
+        api.createAwayEntry(entry)
         refresh().getOrThrow()
     }
-    suspend fun updateAwayEntry(entry: AuswaertsEintrag, replaceMeals: Boolean): Result<Unit> = runCatching {
-        api.updateAwayEntry(entry.id, replaceMeals, entry)
+    suspend fun updateAwayEntry(entry: AuswaertsEintrag): Result<Unit> = runCatching {
+        api.updateAwayEntry(entry.id, entry)
         refresh().getOrThrow()
     }
     suspend fun deleteAwayEntry(id: String): Result<Unit> = runCatching {

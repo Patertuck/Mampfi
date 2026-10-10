@@ -197,7 +197,7 @@ internal fun MealDateSelector(selectedDate: LocalDate, blockedDates: Set<LocalDa
 }
 
 @Composable
-internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entryId: String?, firstRaterName: String, secondRaterName: String, awayEntries: List<AuswaertsEintrag>, done: () -> Unit) {
+internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entryId: String?, firstRaterName: String, secondRaterName: String, done: () -> Unit) {
     val meals by vm.meals.collectAsState(); val selectedMeal = meals.find { it.id == mealId }; val existingEntry = selectedMeal?.eintraege?.find { it.id == entryId }; var chosen by remember { mutableStateOf<Mahlzeit?>(null) }
     var name by remember(selectedMeal) { mutableStateOf(selectedMeal?.name ?: "") }; var link by remember(selectedMeal) { mutableStateOf(selectedMeal?.rezeptLink ?: "") }
     var note by remember(selectedMeal) { mutableStateOf(selectedMeal?.notiz.orEmpty()) }
@@ -212,8 +212,6 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
     val focusManager = LocalFocusManager.current
     val firstRatingFocus = remember { FocusRequester() }
     val secondRatingFocus = remember { FocusRequester() }
-    val blockedDates = awayEntries.mapNotNull { runCatching { LocalDate.parse(it.datum) }.getOrNull() }.toSet()
-    val dateBlocked = selectedDate in blockedDates
     val validation = validateMealForm(name, ratingOne, ratingTwo)
     val initialTags = remember(selectedMeal) { selectedMeal?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet() }
     val dirty = name != selectedMeal?.name.orEmpty() || link != selectedMeal?.rezeptLink.orEmpty() ||
@@ -232,7 +230,7 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? -> bitmap?.let { b -> val bytes = ByteArrayOutputStream().also { b.compress(Bitmap.CompressFormat.JPEG, 90, it) }.toByteArray(); selectedImage({ ByteArrayInputStream(bytes) }, "kamera.jpg", b) } }
     fun save() {
         validationRequested = true
-        if (!validation.isValid || dateBlocked) return
+        if (!validation.isValid) return
         val base = selectedMeal ?: chosen ?: Mahlzeit(name = name.trim())
         val meal = base.copy(name = name.trim(), rezeptLink = link.trim().ifBlank { null }, tags = tags.normalizedDietTags().map { it.name }, notiz = note.trim().ifBlank { null })
         val rating = validation.ratings?.let(::MahlzeitBewertung)
@@ -254,7 +252,7 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
         },
         bottomBar = {
             EditorBottomBar {
-                Button(onClick = ::save, enabled = !saving && !dateBlocked, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = ::save, enabled = !saving, modifier = Modifier.fillMaxWidth()) {
                     SaveButtonContent(saving)
                 }
             }
@@ -289,8 +287,7 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
             ) { if (ratingOne.isBlank()) firstRatingFocus.requestFocus() else focusManager.clearFocus() }
         } }
         item { FormSection("Termin") {
-            MealDateSelector(selectedDate, blockedDates) { selectedDateEpochDay = it.toEpochDay() }
-            if (dateBlocked) Text("An diesem Tag wird auswärts gegessen. Bitte wähle ein anderes Datum.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            MealDateSelector(selectedDate) { selectedDateEpochDay = it.toEpochDay() }
         } }
         item { FormSection("Bild") {
             existingEntry?.takeIf { it.bilder.isNotEmpty() }?.let { entry ->
