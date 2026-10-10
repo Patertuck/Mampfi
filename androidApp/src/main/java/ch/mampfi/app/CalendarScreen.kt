@@ -19,7 +19,6 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.RestaurantMenu
 import androidx.compose.material.icons.outlined.Today
@@ -491,7 +490,6 @@ private fun AwayEntryCard(entry: AuswaertsEintrag, modifier: Modifier = Modifier
             Text("Auswärts essen", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             entry.notiz?.let { Text(it, color = MaterialTheme.colorScheme.onSecondaryContainer) }
         }
-        Icon(Icons.Outlined.Edit, contentDescription = "Auswärts-Eintrag bearbeiten")
     }
 }
 
