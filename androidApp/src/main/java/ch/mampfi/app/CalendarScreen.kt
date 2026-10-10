@@ -462,7 +462,7 @@ private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, clic
         val rating = occurrence.durchschnitt()
         Box(Modifier.width(52.dp), contentAlignment = Alignment.Center) {
             Surface(
-                modifier = Modifier.size(width = 40.dp, height = 30.dp),
+                modifier = Modifier.size(width = 30.dp, height = 30.dp),
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = MaterialTheme.shapes.small,
             ) {
@@ -481,14 +481,14 @@ private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, clic
 
 @Composable
 private fun AwayEntryCard(entry: AuswaertsEintrag, modifier: Modifier = Modifier, click: () -> Unit) = Card(
-    modifier = modifier.fillMaxWidth().clickable(onClick = click),
+    modifier = modifier.fillMaxWidth().height(88.dp).clickable(onClick = click),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
 ) {
-    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxSize().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Outlined.Restaurant, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
         Column(Modifier.padding(start = 12.dp).weight(1f)) {
             Text("Auswärts essen", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            entry.notiz?.let { Text(it, color = MaterialTheme.colorScheme.onSecondaryContainer) }
+            entry.notiz?.let { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSecondaryContainer) }
         }
     }
 }
