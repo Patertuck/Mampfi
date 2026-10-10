@@ -90,6 +90,14 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
         saveWithOptionalImage(repository.createEntry(meal, entry), meal.id, entry.id, image, onComplete)
     }
     fun updateEntry(meal: Mahlzeit, entry: MahlzeitEintrag, onComplete: (Boolean) -> Unit = {}) = viewModelScope.launch { repository.updateEntry(meal, entry).notifySave(onComplete) }
+    fun moveEntry(meal: Mahlzeit, entry: MahlzeitEintrag, date: LocalDate) = viewModelScope.launch {
+        repository.moveEntry(meal.id, entry, date.toString())
+            .onFailure { _message.emit("Verschieben fehlgeschlagen. Der Zieltag wurde möglicherweise inzwischen belegt.") }
+    }
+    fun moveAwayEntry(entry: AuswaertsEintrag, date: LocalDate) = viewModelScope.launch {
+        repository.updateAwayEntry(entry.copy(datum = date.toString()))
+            .onFailure { _message.emit("Verschieben fehlgeschlagen. Am Zieltag gibt es möglicherweise bereits einen Auswärts-Eintrag.") }
+    }
     fun deleteEntry(mealId: String, entryId: String) = viewModelScope.launch { repository.deleteEntry(mealId, entryId).onSuccess { _message.emit("Eintrag gelöscht.") }.onFailure { _message.emit("Löschen fehlgeschlagen.") } }
     fun createAwayEntry(entry: AuswaertsEintrag, onSuccess: () -> Unit) = viewModelScope.launch {
         repository.createAwayEntry(entry)

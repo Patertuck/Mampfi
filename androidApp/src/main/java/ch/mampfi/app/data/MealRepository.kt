@@ -64,6 +64,10 @@ class MealRepository(private val api: MealApi, private val dao: MealDao, private
         api.updateEntry(meal.id, entry.id, entry.withRelativeImageUrls())
         refresh().getOrThrow()
     }
+    suspend fun moveEntry(mealId: String, entry: MahlzeitEintrag, date: String): Result<Unit> = runCatching {
+        api.updateEntry(mealId, entry.id, entry.copy(datum = date).withRelativeImageUrls())
+        refresh().getOrThrow()
+    }
     suspend fun deleteEntry(mealId: String, entryId: String) = runCatching { api.deleteEntry(mealId, entryId); refresh().getOrThrow() }
     suspend fun upload(mealId: String, entryId: String, name: String, stream: InputStream): Result<MahlzeitBild> = runCatching {
         val body = stream.readBytes().toRequestBody("image/*".toMediaType())

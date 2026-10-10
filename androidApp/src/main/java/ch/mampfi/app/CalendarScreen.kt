@@ -4,6 +4,8 @@ package ch.mampfi.app
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,9 +29,16 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
@@ -37,6 +46,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import ch.mampfi.app.data.*
 import com.kizitonwose.calendar.compose.WeekCalendar
 import com.kizitonwose.calendar.compose.weekcalendar.rememberWeekCalendarState
@@ -45,12 +57,16 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 @Composable
 internal fun CalendarScreen(
     meals: List<Mahlzeit>, awayEntries: List<AuswaertsEintrag>, open: (LocalDate) -> Unit,
     recommend: (LocalDate) -> Unit,
     edit: (Mahlzeit, LocalDate) -> Unit,
+    moveMeal: (Mahlzeit, MahlzeitEintrag, LocalDate) -> Unit,
+    moveAway: (AuswaertsEintrag, LocalDate) -> Unit,
     createAway: (AuswaertsEintrag, () -> Unit) -> Unit,
     updateAway: (AuswaertsEintrag, () -> Unit) -> Unit,
     deleteAway: (String, () -> Unit) -> Unit,
@@ -190,7 +206,19 @@ internal fun CalendarScreen(
             }
         } else {
             Box(Modifier.weight(1f)) {
-                PlanSchedule(planItems, planListState, today, edit, { editingAway = it; creatingAway = false }, { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl }, Modifier.fillMaxSize())
+                PlanSchedule(
+                    items = planItems,
+                    state = planListState,
+                    today = today,
+                    meals = meals,
+                    awayEntries = awayEntries,
+                    edit = edit,
+                    editAway = { editingAway = it; creatingAway = false },
+                    moveMeal = moveMeal,
+                    moveAway = moveAway,
+                    openGallery = { meal, imageUrl -> galleryMeal = meal; galleryImageUrl = imageUrl },
+                    modifier = Modifier.fillMaxSize(),
+                )
                 FloatingActionButton(
                     onClick = { actionDate = today },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
@@ -416,8 +444,8 @@ private fun WeekAgenda(date: LocalDate, meals: List<Mahlzeit>, awayEntry: Auswae
 }
 
 @Composable
-private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, click: () -> Unit, openGallery: (String) -> Unit) = Card(
-    modifier = Modifier.fillMaxWidth().clickable(onClick = click),
+private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, click: () -> Unit, modifier: Modifier = Modifier, openGallery: (String) -> Unit) = Card(
+    modifier = modifier.fillMaxWidth().clickable(onClick = click),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
 ) {
     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -452,8 +480,8 @@ private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, clic
 }
 
 @Composable
-private fun AwayEntryCard(entry: AuswaertsEintrag, click: () -> Unit) = Card(
-    modifier = Modifier.fillMaxWidth().clickable(onClick = click),
+private fun AwayEntryCard(entry: AuswaertsEintrag, modifier: Modifier = Modifier, click: () -> Unit) = Card(
+    modifier = modifier.fillMaxWidth().clickable(onClick = click),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
 ) {
     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -526,10 +554,11 @@ internal fun scheduledPlanItems(meals: List<Mahlzeit>, awayEntries: List<Auswaer
         meal.termine.mapNotNull { date -> runCatching { LocalDate.parse(date) }.getOrNull()?.let { it to meal } }
     }.groupBy({ it.first }, { it.second })
     val awayByDate = awayEntries.mapNotNull { entry -> runCatching { LocalDate.parse(entry.datum) }.getOrNull()?.let { it to entry } }.toMap()
-    val dates = mealsByDate.keys + awayByDate.keys
+    val visibleWindow = (0L..7L).map(today::plusDays)
+    val dates = mealsByDate.keys + awayByDate.keys + visibleWindow
     val currentMonth = YearMonth.from(today)
     val datesByMonth = dates.groupBy { YearMonth.from(it) }
-    return (datesByMonth.keys + currentMonth).sorted().flatMap { month ->
+    return datesByMonth.keys.sorted().flatMap { month ->
         buildList {
             add(PlanItem.Month(month))
             var markerAdded = false
@@ -546,31 +575,139 @@ internal fun scheduledPlanItems(meals: List<Mahlzeit>, awayEntries: List<Auswaer
 }
 
 @Composable
-private fun PlanSchedule(items: List<PlanItem>, state: androidx.compose.foundation.lazy.LazyListState, today: LocalDate, edit: (Mahlzeit, LocalDate) -> Unit, editAway: (AuswaertsEintrag) -> Unit, openGallery: (Mahlzeit, String) -> Unit, modifier: Modifier = Modifier) {
-    if (items.isEmpty()) {
-        Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
-            Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                MampfiEmptyMascot(Modifier.size(96.dp))
-                Spacer(Modifier.height(12.dp))
-                Text("Noch nichts geplant", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("Plant eure erste Mahlzeit für heute.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(16.dp))
-            }
+private fun PlanSchedule(
+    items: List<PlanItem>,
+    state: androidx.compose.foundation.lazy.LazyListState,
+    today: LocalDate,
+    meals: List<Mahlzeit>,
+    awayEntries: List<AuswaertsEintrag>,
+    edit: (Mahlzeit, LocalDate) -> Unit,
+    editAway: (AuswaertsEintrag) -> Unit,
+    moveMeal: (Mahlzeit, MahlzeitEintrag, LocalDate) -> Unit,
+    moveAway: (AuswaertsEintrag, LocalDate) -> Unit,
+    openGallery: (Mahlzeit, String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var dragging by remember { mutableStateOf<PlanDragItem?>(null) }
+    var pointerInWindow by remember { mutableStateOf<Offset?>(null) }
+    var listBounds by remember { mutableStateOf(Rect.Zero) }
+    val dayBounds = remember { mutableStateMapOf<LocalDate, Rect>() }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val edgeSize = with(density) { 56.dp.toPx() }
+    val scrollStep = with(density) { 18.dp.toPx() }
+    fun dateAt(pointer: Offset): LocalDate? {
+        val visibleKeys = state.layoutInfo.visibleItemsInfo.map { it.key }.toSet()
+        return dayBounds.entries.firstOrNull { (date, bounds) -> "day-$date" in visibleKeys && pointer in bounds }?.key
+    }
+    val hoveredDate = pointerInWindow?.let(::dateAt)
+
+    fun finishDrag() {
+        val dragged = dragging
+        val target = pointerInWindow?.let(::dateAt)
+        dragging = null
+        pointerInWindow = null
+        if (dragged == null || target == null || target == dragged.sourceDate) return
+        val error = planDropError(dragged, target, meals, awayEntries)
+        if (error != null) {
+            scope.launch { snackbar.showSnackbar(error) }
+            return
         }
-    } else {
+        when (dragged) {
+            is PlanDragItem.Meal -> moveMeal(dragged.meal, dragged.entry, target)
+            is PlanDragItem.Away -> moveAway(dragged.entry, target)
+        }
+    }
+
+    LaunchedEffect(dragging) {
+        while (dragging != null) {
+            pointerInWindow?.y?.let { y ->
+                when {
+                    y < listBounds.top + edgeSize -> state.scrollBy(-scrollStep)
+                    y > listBounds.bottom - edgeSize -> state.scrollBy(scrollStep)
+                }
+            }
+            delay(32)
+        }
+    }
+
+    Box(modifier.onGloballyPositioned { listBounds = it.boundsInWindow() }) {
         LazyColumn(state = state, modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 88.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(items, key = { item -> when (item) { is PlanItem.Month -> "month-${item.yearMonth}"; is PlanItem.TodayMarker -> "today-${item.date}"; is PlanItem.Day -> "day-${item.date}" } }) { item ->
                 when (item) {
                     is PlanItem.Month -> Text(item.yearMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.GERMAN)), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
                     is PlanItem.TodayMarker -> TodayMarkerRow(item.date)
-                    is PlanItem.Day -> PlanDayRow(item.date, item.meals, item.awayEntry, item.date == today, edit, editAway, openGallery)
+                    is PlanItem.Day -> PlanDayRow(
+                        date = item.date,
+                        meals = item.meals,
+                        awayEntry = item.awayEntry,
+                        today = item.date == today,
+                        dragging = dragging,
+                        dropTarget = item.date == hoveredDate,
+                        edit = edit,
+                        editAway = editAway,
+                        openGallery = openGallery,
+                        registerBounds = { bounds -> dayBounds[item.date] = bounds },
+                        startDrag = { dragItem, position ->
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            dragging = dragItem
+                            pointerInWindow = position
+                        },
+                        dragBy = { amount -> pointerInWindow = pointerInWindow?.plus(amount) },
+                        finishDrag = ::finishDrag,
+                        cancelDrag = { dragging = null; pointerInWindow = null },
+                    )
                 }
             }
-            if (items.none { it is PlanItem.Day }) item(key = "empty-plan") {
-                PlanEmptyState(Modifier.fillMaxWidth())
+        }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 76.dp))
+        dragging?.let { dragItem ->
+            pointerInWindow?.let { pointer ->
+                Popup(
+                    alignment = Alignment.TopStart,
+                    offset = IntOffset(
+                        (pointer.x - listBounds.left + with(density) { 12.dp.toPx() }).roundToInt(),
+                        (pointer.y - listBounds.top + with(density) { 12.dp.toPx() }).roundToInt(),
+                    ),
+                    properties = PopupProperties(focusable = false, clippingEnabled = false),
+                ) {
+                    Surface(shape = MaterialTheme.shapes.medium, tonalElevation = 8.dp, shadowElevation = 8.dp) {
+                        Row(Modifier.widthIn(max = 260.dp).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (dragItem is PlanDragItem.Away) Icons.Outlined.Restaurant else Icons.Outlined.RestaurantMenu, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(dragItem.label, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+internal sealed interface PlanDragItem {
+    val sourceDate: LocalDate
+    val label: String
+
+    data class Meal(val meal: Mahlzeit, val entry: MahlzeitEintrag) : PlanDragItem {
+        override val sourceDate: LocalDate = LocalDate.parse(entry.datum)
+        override val label: String = meal.name
+    }
+
+    data class Away(val entry: AuswaertsEintrag) : PlanDragItem {
+        override val sourceDate: LocalDate = LocalDate.parse(entry.datum)
+        override val label: String = "Auswärts essen"
+    }
+}
+
+internal fun planDropError(item: PlanDragItem, target: LocalDate, meals: List<Mahlzeit>, awayEntries: List<AuswaertsEintrag>): String? = when (item) {
+    is PlanDragItem.Meal -> if (meals.firstOrNull { it.id == item.meal.id }?.eintraege.orEmpty().any { it.id != item.entry.id && it.datum == target.toString() }) {
+        "Diese Mahlzeit ist am Zieltag bereits geplant."
+    } else null
+    is PlanDragItem.Away -> if (awayEntries.any { it.id != item.entry.id && it.datum == target.toString() }) {
+        "Am Zieltag gibt es bereits einen Auswärts-Eintrag."
+    } else null
 }
 
 @Composable
@@ -589,31 +726,74 @@ private fun TodayMarkerRow(date: LocalDate) {
 }
 
 @Composable
-private fun PlanEmptyState(modifier: Modifier = Modifier) {
-    Surface(modifier, color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large) {
-        Column(Modifier.padding(horizontal = 28.dp, vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            MampfiEmptyMascot(Modifier.size(96.dp))
-            Spacer(Modifier.height(12.dp))
-            Text("Noch nichts geplant", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("Plant eure erste Mahlzeit für heute.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun PlanDayRow(date: LocalDate, meals: List<Mahlzeit>, awayEntry: AuswaertsEintrag?, today: Boolean, edit: (Mahlzeit, LocalDate) -> Unit, editAway: (AuswaertsEintrag) -> Unit, openGallery: (Mahlzeit, String) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+private fun PlanDayRow(
+    date: LocalDate,
+    meals: List<Mahlzeit>,
+    awayEntry: AuswaertsEintrag?,
+    today: Boolean,
+    dragging: PlanDragItem?,
+    dropTarget: Boolean,
+    edit: (Mahlzeit, LocalDate) -> Unit,
+    editAway: (AuswaertsEintrag) -> Unit,
+    openGallery: (Mahlzeit, String) -> Unit,
+    registerBounds: (Rect) -> Unit,
+    startDrag: (PlanDragItem, Offset) -> Unit,
+    dragBy: (Offset) -> Unit,
+    finishDrag: () -> Unit,
+    cancelDrag: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().onGloballyPositioned { registerBounds(it.boundsInWindow()) },
+        color = if (dropTarget) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        shape = MaterialTheme.shapes.medium,
+        border = if (dropTarget) BorderStroke(1.dp, MaterialTheme.colorScheme.secondary) else null,
+    ) {
+      Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
         Column(Modifier.width(54.dp).padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.GERMAN), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = if (today) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            awayEntry?.let { AwayEntryCard(it) { editAway(it) } }
+        Column(Modifier.weight(1f).heightIn(min = 64.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (awayEntry == null && meals.isEmpty()) {
+                Box(Modifier.fillMaxWidth().heightIn(min = 64.dp), contentAlignment = Alignment.CenterStart) {
+                    Text("Noch nichts geplant", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            awayEntry?.let { entry ->
+                var cardBounds by remember(entry.id) { mutableStateOf(Rect.Zero) }
+                val item = remember(entry) { PlanDragItem.Away(entry) }
+                val dragModifier = Modifier
+                    .alpha(if ((dragging as? PlanDragItem.Away)?.entry?.id == entry.id) 0.45f else 1f)
+                    .onGloballyPositioned { cardBounds = it.boundsInWindow() }
+                    .pointerInput(item) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { startDrag(item, cardBounds.topLeft + it) },
+                            onDrag = { change, amount -> change.consume(); dragBy(amount) },
+                            onDragEnd = finishDrag,
+                            onDragCancel = cancelDrag,
+                        )
+                    }
+                AwayEntryCard(entry, dragModifier) { editAway(entry) }
+            }
             meals.forEach { meal ->
                 meal.eintraege.firstOrNull { it.datum == date.toString() }?.let { occurrence ->
-                    WeekAgendaMealCard(meal, occurrence, { edit(meal, date) }) { imageUrl -> openGallery(meal, imageUrl) }
+                    var cardBounds by remember(occurrence.id) { mutableStateOf(Rect.Zero) }
+                    val item = remember(meal, occurrence) { PlanDragItem.Meal(meal, occurrence) }
+                    val dragModifier = Modifier
+                        .alpha(if ((dragging as? PlanDragItem.Meal)?.entry?.id == occurrence.id) 0.45f else 1f)
+                        .onGloballyPositioned { cardBounds = it.boundsInWindow() }
+                        .pointerInput(item) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { startDrag(item, cardBounds.topLeft + it) },
+                                onDrag = { change, amount -> change.consume(); dragBy(amount) },
+                                onDragEnd = finishDrag,
+                                onDragCancel = cancelDrag,
+                            )
+                        }
+                    WeekAgendaMealCard(meal, occurrence, { edit(meal, date) }, dragModifier) { imageUrl -> openGallery(meal, imageUrl) }
                 }
             }
         }
+      }
     }
 }

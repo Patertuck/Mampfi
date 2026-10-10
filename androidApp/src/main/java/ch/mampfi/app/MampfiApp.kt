@@ -99,6 +99,8 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
                 open = { nav.navigate("bearbeiten/$it") },
                 recommend = { nav.navigate("empfehlung/$it") },
                 edit = { meal, date -> meal.eintraege.firstOrNull { it.datum == date.toString() }?.let { occurrence -> nav.navigate("bearbeiten/$date?meal=${meal.id}&entry=${occurrence.id}") } },
+                moveMeal = vm::moveEntry,
+                moveAway = vm::moveAwayEntry,
                 createAway = vm::createAwayEntry,
                 updateAway = vm::updateAwayEntry,
                 deleteAway = vm::deleteAwayEntry,
