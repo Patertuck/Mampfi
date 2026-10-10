@@ -163,7 +163,13 @@ private fun IdeaCard(idea: Mahlzeit, click: () -> Unit) = Card(
 
 
 @Composable
-internal fun IdeaEditScreen(vm: MealViewModel, mealId: String?, schedule: (String) -> Unit, done: () -> Unit) {
+internal fun IdeaEditScreen(
+    vm: MealViewModel,
+    mealId: String?,
+    initialDraft: SharedMealDraft? = null,
+    schedule: (String) -> Unit,
+    done: () -> Unit,
+) {
     val meals by vm.meals.collectAsState()
     val selectedIdea = meals.find { it.id == mealId && it.istIdee }
     if (mealId != null && selectedIdea == null) {
@@ -171,8 +177,8 @@ internal fun IdeaEditScreen(vm: MealViewModel, mealId: String?, schedule: (Strin
         return
     }
     val isNew = mealId == null
-    var name by remember(selectedIdea) { mutableStateOf(selectedIdea?.name.orEmpty()) }
-    var link by remember(selectedIdea) { mutableStateOf(selectedIdea?.rezeptLink.orEmpty()) }
+    var name by remember(selectedIdea, initialDraft) { mutableStateOf(selectedIdea?.name ?: initialDraft?.name.orEmpty()) }
+    var link by remember(selectedIdea, initialDraft) { mutableStateOf(selectedIdea?.rezeptLink ?: initialDraft?.link.orEmpty()) }
     var note by remember(selectedIdea) { mutableStateOf(selectedIdea?.notiz.orEmpty()) }
     var tags by remember(selectedIdea) {
         mutableStateOf(selectedIdea?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet())

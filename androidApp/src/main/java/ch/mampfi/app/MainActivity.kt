@@ -1,5 +1,6 @@
 package ch.mampfi.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -45,6 +46,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import retrofit2.Retrofit
 
 class MainActivity : ComponentActivity() {
+    private var pendingSharedMeal by mutableStateOf<SharedMealDraft?>(null)
+
     private val db by lazy {
         Room.databaseBuilder(applicationContext, MealDatabase::class.java, "mampfi.db")
             .addMigrations(object : Migration(2, 3) {
@@ -58,6 +61,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) pendingSharedMeal = intent.sharedMealDraftOrNull()
         val revealStartupDetails = mutableStateOf(false)
         splashScreen.setOnExitAnimationListener { splashScreenView ->
             splashScreenView.view.animate()
@@ -122,15 +126,31 @@ class MainActivity : ComponentActivity() {
                         connectedViaTailscale = baseUrl == settings!!.tailscaleBaseUrl,
                         endpointStore = endpointStore,
                         themeMode = settings!!.themeMode,
+                        pendingSharedMeal = pendingSharedMeal,
+                        sharedMealConsumed = { pendingSharedMeal = null },
                     )
                 }
             }
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingSharedMeal = intent.sharedMealDraftOrNull()
+    }
+
     private companion object {
         const val SPLASH_EXIT_DURATION_MILLIS = 180L
     }
+}
+
+private fun Intent.sharedMealDraftOrNull(): SharedMealDraft? {
+    if (action != Intent.ACTION_SEND || type != "text/plain") return null
+    return parseSharedMealDraft(
+        text = getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
+        subject = getStringExtra(Intent.EXTRA_SUBJECT),
+    )
 }
 
 @Composable

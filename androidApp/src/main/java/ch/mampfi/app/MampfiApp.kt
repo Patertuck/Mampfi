@@ -16,6 +16,7 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.*
@@ -26,7 +27,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import java.time.LocalDate
 
 @Composable
-fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpointStore: EndpointSettingsStore, themeMode: ThemeMode = ThemeMode.DARK, updateVm: UpdateViewModel = viewModel()) = MampfiTheme(themeMode) {
+internal fun MampfiApp(
+    vm: MealViewModel,
+    connectedViaTailscale: Boolean = false,
+    endpointStore: EndpointSettingsStore,
+    themeMode: ThemeMode = ThemeMode.DARK,
+    updateVm: UpdateViewModel = viewModel(),
+    pendingSharedMeal: SharedMealDraft? = null,
+    sharedMealConsumed: () -> Unit = {},
+) = MampfiTheme(themeMode) {
     val nav = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -36,6 +45,8 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
     val topLevelRoutes = remember { setOf("kalender", "ideen", "uebersicht", "einstellungen") }
     val appSettings by endpointStore.settings.collectAsState(initial = EndpointSettings())
     val syncStatus by vm.syncStatus.collectAsState()
+    var sharedMealName by rememberSaveable { mutableStateOf("") }
+    var sharedMealLink by rememberSaveable { mutableStateOf("") }
     DisposableEffect(lifecycleOwner, vm) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -54,6 +65,14 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }
     LaunchedEffect(connectedViaTailscale) {
         if (connectedViaTailscale) snackbar.showSnackbar("Verbunden über Tailscale")
+    }
+    LaunchedEffect(pendingSharedMeal) {
+        pendingSharedMeal?.let { draft ->
+            sharedMealName = draft.name
+            sharedMealLink = draft.link
+            nav.navigate("geteilte-idee")
+            sharedMealConsumed()
+        }
     }
     Scaffold(
         modifier = Modifier
@@ -132,6 +151,13 @@ fun MampfiApp(vm: MealViewModel, connectedViaTailscale: Boolean = false, endpoin
             composable("idee?meal={meal}") { entry -> IdeaEditScreen(
                 vm = vm,
                 mealId = entry.arguments?.getString("meal"),
+                schedule = { mealId -> nav.navigate("bearbeiten/${LocalDate.now()}?meal=$mealId") { popUpTo("ideen") } },
+                done = { nav.popBackStack() },
+            ) }
+            composable("geteilte-idee") { IdeaEditScreen(
+                vm = vm,
+                mealId = null,
+                initialDraft = SharedMealDraft(sharedMealName, sharedMealLink),
                 schedule = { mealId -> nav.navigate("bearbeiten/${LocalDate.now()}?meal=$mealId") { popUpTo("ideen") } },
                 done = { nav.popBackStack() },
             ) }

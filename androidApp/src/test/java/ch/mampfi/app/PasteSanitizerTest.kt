@@ -50,4 +50,41 @@ class PasteSanitizerTest {
     fun `normalizes a multiline pasted meal name`() {
         assertEquals("Creamy Mac and Cheese", normalizePastedMealName("  Creamy Mac\nand   Cheese  "))
     }
+
+    @Test
+    fun `creates shared draft from title and recipe link`() {
+        assertEquals(
+            SharedMealDraft("Creamy Mac and Cheese", "https://example.test/recipe"),
+            parseSharedMealDraft("Creamy Mac and Cheese\nhttps://example.test/recipe", null),
+        )
+    }
+
+    @Test
+    fun `prefers shared subject as meal name`() {
+        assertEquals(
+            SharedMealDraft("Dinner tonight", "https://example.test/recipe"),
+            parseSharedMealDraft("Different text\nhttps://example.test/recipe", "Dinner tonight"),
+        )
+    }
+
+    @Test
+    fun `normalizes www link and leaves url-only share unnamed`() {
+        assertEquals(
+            SharedMealDraft("", "https://www.example.test/recipe"),
+            parseSharedMealDraft("www.example.test/recipe", null),
+        )
+    }
+
+    @Test
+    fun `removes link from a single-line shared subject`() {
+        assertEquals(
+            SharedMealDraft("Creamy pasta", "https://example.test/pasta"),
+            parseSharedMealDraft("https://example.test/pasta", "Creamy pasta – https://example.test/pasta"),
+        )
+    }
+
+    @Test
+    fun `rejects shares without a web link`() {
+        assertNull(parseSharedMealDraft("Creamy pasta", "Recipe"))
+    }
 }
