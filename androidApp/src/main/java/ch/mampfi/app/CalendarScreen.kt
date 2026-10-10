@@ -65,8 +65,8 @@ internal fun CalendarScreen(
     meals: List<Mahlzeit>, awayEntries: List<AuswaertsEintrag>, open: (LocalDate) -> Unit,
     recommend: (LocalDate) -> Unit,
     edit: (Mahlzeit, LocalDate) -> Unit,
-    moveMeal: (Mahlzeit, MahlzeitEintrag, LocalDate) -> Unit,
-    moveAway: (AuswaertsEintrag, LocalDate) -> Unit,
+    moveMeal: (Mahlzeit, MahlzeitEintrag, LocalDate, (Boolean) -> Unit) -> Unit,
+    moveAway: (AuswaertsEintrag, LocalDate, (Boolean) -> Unit) -> Unit,
     createAway: (AuswaertsEintrag, () -> Unit) -> Unit,
     updateAway: (AuswaertsEintrag, () -> Unit) -> Unit,
     deleteAway: (String, () -> Unit) -> Unit,
@@ -207,7 +207,6 @@ internal fun CalendarScreen(
         } else {
             Box(Modifier.weight(1f)) {
                 PlanSchedule(
-                    items = planItems,
                     state = planListState,
                     today = today,
                     meals = meals,
@@ -551,6 +550,45 @@ internal sealed interface PlanItem {
     data class Day(val date: LocalDate, val meals: List<Mahlzeit>, val awayEntry: AuswaertsEintrag?) : PlanItem
 }
 
+internal sealed interface PendingPlanMove {
+    val entryId: String
+    val target: LocalDate
+    val key: String
+
+    data class Meal(val mealId: String, override val entryId: String, override val target: LocalDate) : PendingPlanMove {
+        override val key: String = "meal-$entryId"
+    }
+
+    data class Away(override val entryId: String, override val target: LocalDate) : PendingPlanMove {
+        override val key: String = "away-$entryId"
+    }
+}
+
+internal data class OptimisticPlanData(val meals: List<Mahlzeit>, val awayEntries: List<AuswaertsEintrag>)
+
+internal fun applyPendingPlanMoves(
+    meals: List<Mahlzeit>,
+    awayEntries: List<AuswaertsEintrag>,
+    pendingMoves: Collection<PendingPlanMove>,
+): OptimisticPlanData {
+    val mealMoves = pendingMoves.filterIsInstance<PendingPlanMove.Meal>().associateBy { it.entryId }
+    val awayMoves = pendingMoves.filterIsInstance<PendingPlanMove.Away>().associateBy { it.entryId }
+    return OptimisticPlanData(
+        meals = meals.map { meal ->
+            meal.copy(eintraege = meal.eintraege.map { entry ->
+                mealMoves[entry.id]?.takeIf { it.mealId == meal.id }?.let { move -> entry.copy(datum = move.target.toString()) } ?: entry
+            })
+        },
+        awayEntries = awayEntries.map { entry -> awayMoves[entry.id]?.let { entry.copy(datum = it.target.toString()) } ?: entry },
+    )
+}
+
+internal fun pendingMoveReflected(move: PendingPlanMove, meals: List<Mahlzeit>, awayEntries: List<AuswaertsEintrag>): Boolean = when (move) {
+    is PendingPlanMove.Meal -> meals.firstOrNull { it.id == move.mealId }?.eintraege
+        ?.any { it.id == move.entryId && it.datum == move.target.toString() } == true
+    is PendingPlanMove.Away -> awayEntries.any { it.id == move.entryId && it.datum == move.target.toString() }
+}
+
 internal fun scheduledPlanItems(meals: List<Mahlzeit>, awayEntries: List<AuswaertsEintrag>, today: LocalDate): List<PlanItem> {
     val mealsByDate = meals.flatMap { meal ->
         meal.termine.mapNotNull { date -> runCatching { LocalDate.parse(date) }.getOrNull()?.let { it to meal } }
@@ -578,15 +616,14 @@ internal fun scheduledPlanItems(meals: List<Mahlzeit>, awayEntries: List<Auswaer
 
 @Composable
 private fun PlanSchedule(
-    items: List<PlanItem>,
     state: androidx.compose.foundation.lazy.LazyListState,
     today: LocalDate,
     meals: List<Mahlzeit>,
     awayEntries: List<AuswaertsEintrag>,
     edit: (Mahlzeit, LocalDate) -> Unit,
     editAway: (AuswaertsEintrag) -> Unit,
-    moveMeal: (Mahlzeit, MahlzeitEintrag, LocalDate) -> Unit,
-    moveAway: (AuswaertsEintrag, LocalDate) -> Unit,
+    moveMeal: (Mahlzeit, MahlzeitEintrag, LocalDate, (Boolean) -> Unit) -> Unit,
+    moveAway: (AuswaertsEintrag, LocalDate, (Boolean) -> Unit) -> Unit,
     openGallery: (Mahlzeit, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -594,12 +631,15 @@ private fun PlanSchedule(
     var pointerInWindow by remember { mutableStateOf<Offset?>(null) }
     var listBounds by remember { mutableStateOf(Rect.Zero) }
     val dayBounds = remember { mutableStateMapOf<LocalDate, Rect>() }
+    val pendingMoves = remember { mutableStateMapOf<String, PendingPlanMove>() }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val edgeSize = with(density) { 56.dp.toPx() }
     val scrollStep = with(density) { 18.dp.toPx() }
+    val optimisticData = applyPendingPlanMoves(meals, awayEntries, pendingMoves.values)
+    val displayedItems = scheduledPlanItems(optimisticData.meals, optimisticData.awayEntries, today)
     fun dateAt(pointer: Offset): LocalDate? {
         val visibleKeys = state.layoutInfo.visibleItemsInfo.map { it.key }.toSet()
         return dayBounds.entries.firstOrNull { (date, bounds) -> "day-$date" in visibleKeys && pointer in bounds }?.key
@@ -612,15 +652,27 @@ private fun PlanSchedule(
         dragging = null
         pointerInWindow = null
         if (dragged == null || target == null || target == dragged.sourceDate) return
-        val error = planDropError(dragged, target, meals, awayEntries)
+        val error = planDropError(dragged, target, optimisticData.meals, optimisticData.awayEntries)
         if (error != null) {
             scope.launch { snackbar.showSnackbar(error) }
             return
         }
         when (dragged) {
-            is PlanDragItem.Meal -> moveMeal(dragged.meal, dragged.entry, target)
-            is PlanDragItem.Away -> moveAway(dragged.entry, target)
+            is PlanDragItem.Meal -> {
+                val move = PendingPlanMove.Meal(dragged.meal.id, dragged.entry.id, target)
+                pendingMoves[move.key] = move
+                moveMeal(dragged.meal, dragged.entry, target) { success -> if (!success) pendingMoves.remove(move.key) }
+            }
+            is PlanDragItem.Away -> {
+                val move = PendingPlanMove.Away(dragged.entry.id, target)
+                pendingMoves[move.key] = move
+                moveAway(dragged.entry, target) { success -> if (!success) pendingMoves.remove(move.key) }
+            }
         }
+    }
+
+    LaunchedEffect(meals, awayEntries) {
+        pendingMoves.values.filter { pendingMoveReflected(it, meals, awayEntries) }.forEach { pendingMoves.remove(it.key) }
     }
 
     LaunchedEffect(dragging) {
@@ -637,7 +689,7 @@ private fun PlanSchedule(
 
     Box(modifier.onGloballyPositioned { listBounds = it.boundsInWindow() }) {
         LazyColumn(state = state, modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 88.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(items, key = { item -> when (item) { is PlanItem.Month -> "month-${item.yearMonth}"; is PlanItem.TodayMarker -> "today-${item.date}"; is PlanItem.Day -> "day-${item.date}" } }) { item ->
+            items(displayedItems, key = { item -> when (item) { is PlanItem.Month -> "month-${item.yearMonth}"; is PlanItem.TodayMarker -> "today-${item.date}"; is PlanItem.Day -> "day-${item.date}" } }) { item ->
                 when (item) {
                     is PlanItem.Month -> Text(item.yearMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.GERMAN)), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
                     is PlanItem.TodayMarker -> TodayMarkerRow(item.date)
@@ -647,6 +699,7 @@ private fun PlanSchedule(
                         awayEntry = item.awayEntry,
                         today = item.date == today,
                         dragging = dragging,
+                        pendingMoveKeys = pendingMoves.keys,
                         dropTarget = item.date == hoveredDate,
                         edit = edit,
                         editAway = editAway,
@@ -734,6 +787,7 @@ private fun PlanDayRow(
     awayEntry: AuswaertsEintrag?,
     today: Boolean,
     dragging: PlanDragItem?,
+    pendingMoveKeys: Set<String>,
     dropTarget: Boolean,
     edit: (Mahlzeit, LocalDate) -> Unit,
     editAway: (AuswaertsEintrag) -> Unit,
@@ -764,34 +818,36 @@ private fun PlanDayRow(
             awayEntry?.let { entry ->
                 var cardBounds by remember(entry.id) { mutableStateOf(Rect.Zero) }
                 val item = remember(entry) { PlanDragItem.Away(entry) }
+                val pending = "away-${entry.id}" in pendingMoveKeys
                 val dragModifier = Modifier
                     .alpha(if ((dragging as? PlanDragItem.Away)?.entry?.id == entry.id) 0.45f else 1f)
                     .onGloballyPositioned { cardBounds = it.boundsInWindow() }
-                    .pointerInput(item) {
+                    .then(if (pending) Modifier else Modifier.pointerInput(item) {
                         detectDragGesturesAfterLongPress(
                             onDragStart = { startDrag(item, cardBounds.topLeft + it) },
                             onDrag = { change, amount -> change.consume(); dragBy(amount) },
                             onDragEnd = finishDrag,
                             onDragCancel = cancelDrag,
                         )
-                    }
+                    })
                 AwayEntryCard(entry, dragModifier) { editAway(entry) }
             }
             meals.forEach { meal ->
                 meal.eintraege.firstOrNull { it.datum == date.toString() }?.let { occurrence ->
                     var cardBounds by remember(occurrence.id) { mutableStateOf(Rect.Zero) }
                     val item = remember(meal, occurrence) { PlanDragItem.Meal(meal, occurrence) }
+                    val pending = "meal-${occurrence.id}" in pendingMoveKeys
                     val dragModifier = Modifier
                         .alpha(if ((dragging as? PlanDragItem.Meal)?.entry?.id == occurrence.id) 0.45f else 1f)
                         .onGloballyPositioned { cardBounds = it.boundsInWindow() }
-                        .pointerInput(item) {
+                        .then(if (pending) Modifier else Modifier.pointerInput(item) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = { startDrag(item, cardBounds.topLeft + it) },
                                 onDrag = { change, amount -> change.consume(); dragBy(amount) },
                                 onDragEnd = finishDrag,
                                 onDragCancel = cancelDrag,
                             )
-                        }
+                        })
                     WeekAgendaMealCard(meal, occurrence, { edit(meal, date) }, dragModifier) { imageUrl -> openGallery(meal, imageUrl) }
                 }
             }

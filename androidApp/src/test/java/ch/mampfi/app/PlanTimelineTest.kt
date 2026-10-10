@@ -2,6 +2,8 @@ package ch.mampfi.app
 
 import ch.mampfi.app.data.AuswaertsEintrag
 import ch.mampfi.app.data.Mahlzeit
+import ch.mampfi.app.data.MahlzeitBewertung
+import ch.mampfi.app.data.MahlzeitBild
 import ch.mampfi.app.data.MahlzeitEintrag
 import java.time.LocalDate
 import java.time.YearMonth
@@ -84,6 +86,39 @@ class PlanTimelineTest {
         assertNull(planDropError(PlanDragItem.Meal(meal, sourceEntry), today.plusDays(2), listOf(meal), listOf(away)))
         assertNotNull(planDropError(PlanDragItem.Away(away), today.plusDays(3), listOf(meal), listOf(away, AuswaertsEintrag(datum = today.plusDays(3).toString()))))
         assertNull(planDropError(PlanDragItem.Away(away), today.plusDays(1), listOf(meal), listOf(away)))
+    }
+
+    @Test
+    fun `optimistic meal move preserves occurrence data and changes only its date`() {
+        val target = today.plusDays(3)
+        val entry = MahlzeitEintrag(
+            id = "entry",
+            datum = today.toString(),
+            bilder = listOf(MahlzeitBild(id = "image", url = "/uploads/image.jpg")),
+            bewertung = MahlzeitBewertung(listOf(8.0, 9.0)),
+        )
+        val meal = Mahlzeit(id = "meal", name = "Curry", eintraege = listOf(entry), notiz = "Extra scharf")
+        val move = PendingPlanMove.Meal(meal.id, entry.id, target)
+
+        val result = applyPendingPlanMoves(listOf(meal), emptyList(), listOf(move))
+
+        assertEquals(entry.copy(datum = target.toString()), result.meals.single().eintraege.single())
+        assertEquals(meal.notiz, result.meals.single().notiz)
+        assertEquals(false, pendingMoveReflected(move, listOf(meal), emptyList()))
+        assertEquals(true, pendingMoveReflected(move, result.meals, emptyList()))
+    }
+
+    @Test
+    fun `optimistic away move preserves id and note until backing data catches up`() {
+        val target = today.plusDays(4)
+        val away = AuswaertsEintrag(id = "away", datum = today.toString(), notiz = "Bei Anna")
+        val move = PendingPlanMove.Away(away.id, target)
+
+        val result = applyPendingPlanMoves(emptyList(), listOf(away), listOf(move))
+
+        assertEquals(away.copy(datum = target.toString()), result.awayEntries.single())
+        assertEquals(false, pendingMoveReflected(move, emptyList(), listOf(away)))
+        assertEquals(true, pendingMoveReflected(move, emptyList(), result.awayEntries))
     }
 
     private fun mealOn(date: LocalDate, name: String = "Meal") = Mahlzeit(
