@@ -464,15 +464,17 @@ private fun WeekAgendaMealCard(meal: Mahlzeit, occurrence: MahlzeitEintrag, clic
         val rating = occurrence.durchschnitt()
         Box(Modifier.width(52.dp), contentAlignment = Alignment.Center) {
             Surface(
-                color = if (rating == null) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.size(width = 40.dp, height = 30.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = MaterialTheme.shapes.small,
             ) {
-                Text(
-                    rating?.let { String.format(Locale.GERMANY, "%.1f", it) } ?: "–",
-                    Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (rating == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSecondaryContainer,
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        rating?.let { String.format(Locale.GERMANY, "%.1f", it) } ?: "–",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
             }
         }
         Box(Modifier.width(36.dp), contentAlignment = Alignment.Center) { DietMarker(meal) }
