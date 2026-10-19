@@ -114,14 +114,7 @@ internal fun MealDetailScreen(
         }
         item {
             FormSection("Zutaten") {
-                if (meal.ingredients.isEmpty()) Text("Noch keine Zutaten erfasst.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                meal.recipeServings?.let { Text("Grundmenge für $it Personen", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) }
-                meal.ingredients.forEach { ingredient ->
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(ingredient.displayAmount(), Modifier.widthIn(min = 72.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(ingredient.name, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
-                }
+                RecipeIngredientSummary(meal)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton({ ingredientEditorVisible = true }, Modifier.weight(1f)) { Icon(Icons.Outlined.Edit, null); Spacer(Modifier.width(6.dp)); Text("Bearbeiten") }
                     OutlinedButton({ if (meal.ingredients.isEmpty()) vm.extractIngredients(meal) else reloadConfirmationVisible = true }, enabled = recipeUrl != null, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Laden") }
@@ -219,6 +212,18 @@ internal fun MealDetailScreen(
 }
 
 @Composable
+internal fun RecipeIngredientSummary(meal: Mahlzeit) {
+    if (meal.ingredients.isEmpty()) Text("Noch keine Zutaten erfasst.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    meal.recipeServings?.let { Text("Grundmenge für $it Personen", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) }
+    meal.ingredients.forEach { ingredient ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(ingredient.displayAmount(), Modifier.widthIn(min = 72.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(ingredient.name, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
 private fun IngredientEditorDialog(meal: Mahlzeit, dismiss: () -> Unit, save: (Mahlzeit) -> Unit) {
     var servings by remember(meal.id, meal.recipeServings) { mutableStateOf(meal.recipeServings?.toString().orEmpty()) }
     var ingredients by remember(meal.id, meal.ingredients) { mutableStateOf(meal.ingredients) }
@@ -279,7 +284,7 @@ private fun IngredientEditRow(ingredient: RecipeIngredient, change: (RecipeIngre
 }
 
 @Composable
-private fun GroceryReviewDialog(meal: Mahlzeit, dismiss: () -> Unit, add: (List<RecipeGrocerySelection>) -> Unit) {
+internal fun GroceryReviewDialog(meal: Mahlzeit, dismiss: () -> Unit, add: (List<RecipeGrocerySelection>) -> Unit) {
     val baseServings = meal.recipeServings
     var targetServings by remember(meal.id) { mutableStateOf(baseServings?.toString().orEmpty()) }
     var selected by remember(meal.id) { mutableStateOf(meal.ingredients.map { it.id }.toSet()) }

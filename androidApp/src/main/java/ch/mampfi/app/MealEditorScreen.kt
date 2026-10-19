@@ -18,6 +18,8 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -197,7 +199,7 @@ internal fun MealDateSelector(selectedDate: LocalDate, blockedDates: Set<LocalDa
 }
 
 @Composable
-internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, entryId: String?, firstRaterName: String, secondRaterName: String, done: () -> Unit) {
+internal fun EditScreen(vm: MealViewModel, groceryVm: GroceryViewModel, date: LocalDate, mealId: String?, entryId: String?, firstRaterName: String, secondRaterName: String, done: () -> Unit) {
     val meals by vm.meals.collectAsState(); val selectedMeal = meals.find { it.id == mealId }; val existingEntry = selectedMeal?.eintraege?.find { it.id == entryId }; var chosen by remember { mutableStateOf<Mahlzeit?>(null) }
     var name by remember(selectedMeal) { mutableStateOf(selectedMeal?.name ?: "") }; var link by remember(selectedMeal) { mutableStateOf(selectedMeal?.rezeptLink ?: "") }
     var note by remember(selectedMeal) { mutableStateOf(selectedMeal?.notiz.orEmpty()) }
@@ -208,6 +210,11 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
     var selectedDateEpochDay by rememberSaveable(date) { mutableLongStateOf(date.toEpochDay()) }; var expanded by remember { mutableStateOf(false) }; var confirmDelete by remember { mutableStateOf(false) }; var pendingImage by remember { mutableStateOf<PendingEntryImage?>(null) }
     var galleryImageUrl by remember { mutableStateOf<String?>(null) }; var confirmDiscard by remember { mutableStateOf(false) }
     var validationRequested by remember { mutableStateOf(false) }; var saving by remember { mutableStateOf(false) }
+    var groceryReviewVisible by remember { mutableStateOf(false) }
+    var reloadIngredientsConfirmationVisible by remember { mutableStateOf(false) }
+    var extractingIngredients by remember { mutableStateOf(false) }
+    val grocerySnackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     val context = LocalContext.current; val selectedDate = LocalDate.ofEpochDay(selectedDateEpochDay)
     val focusManager = LocalFocusManager.current
     val firstRatingFocus = remember { FocusRequester() }
@@ -244,6 +251,7 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
         }
     }
     Scaffold(
+        snackbarHost = { SnackbarHost(grocerySnackbar) },
         topBar = {
             TopAppBar(
                 title = { Text(when { existingEntry != null -> "Eintrag bearbeiten"; selectedMeal?.istIdee == true -> "Mahlzeit planen"; else -> "Neues Essen" }, maxLines = 1) },
@@ -264,6 +272,37 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
     ) {
         item { Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) { Column(Modifier.padding(20.dp)) { Text(when { existingEntry != null -> "Eintrag bearbeiten"; selectedMeal?.istIdee == true -> "Mahlzeit planen"; else -> "Neues Essen" }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(selectedDate.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM yyyy", Locale.GERMAN)), color = MaterialTheme.colorScheme.onPrimaryContainer) } } }
         item { FormSection("Mahlzeit") { OutlinedTextField(name, { value -> name = if ('\n' in value || '\r' in value) normalizePastedMealName(value) else value; expanded = name.isNotBlank() && existingEntry == null }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), isError = validationRequested && validation.nameError != null, supportingText = if (validationRequested && validation.nameError != null) {{ Text(validation.nameError!!) }} else null); if (expanded) meals.filter { it.name.contains(name, true) }.take(5).forEach { meal -> Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { chosen = meal; name = meal.name; link = meal.rezeptLink.orEmpty(); note = meal.notiz.orEmpty(); tags = meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags(); expanded = false }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { meal.letztesBild()?.let { AsyncImage(it, null, Modifier.size(42.dp).clip(MaterialTheme.shapes.small)) }; Column(Modifier.padding(start = 10.dp)) { Text(meal.name, fontWeight = FontWeight.Bold); Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "Noch nicht bewertet", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }; RecipeLinkField(link, selectedMeal != null || chosen != null) { link = it }; OutlinedTextField(note, { note = it }, label = { Text("Notiz (optional)") }, placeholder = { Text("z. B. Änderungen am Rezept") }, modifier = Modifier.fillMaxWidth(), minLines = 3, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)) } }
+        (selectedMeal ?: chosen)?.let { ingredientMeal -> item {
+            FormSection("Zutaten") {
+                RecipeIngredientSummary(ingredientMeal)
+                OutlinedButton(
+                    onClick = {
+                        if (ingredientMeal.ingredients.isEmpty()) {
+                            extractingIngredients = true
+                            vm.extractIngredients(ingredientMeal) { extracted ->
+                                extractingIngredients = false
+                                if (selectedMeal == null && extracted != null) chosen = ingredientMeal.copy(
+                                    recipeServings = extracted.recipeServings,
+                                    ingredients = extracted.ingredients,
+                                )
+                            }
+                        } else reloadIngredientsConfirmationVisible = true
+                    },
+                    enabled = normalizedWebUrlOrNull(ingredientMeal.rezeptLink.orEmpty()) != null && !extractingIngredients,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (extractingIngredients) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Outlined.Refresh, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (ingredientMeal.ingredients.isEmpty()) "Zutaten laden" else "Zutaten neu laden")
+                }
+                Button({ groceryReviewVisible = true }, enabled = ingredientMeal.ingredients.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.ShoppingCart, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Zum Einkauf")
+                }
+            }
+        } }
         item { FormSection("Eigenschaften") { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Tag.entries.forEach { tag -> FilterChip(tag in tags, { tags = tags.toggleMealTag(tag) }, { Text(tag.label) }) } } } }
         item { FormSection("Bewertung") {
             Text("Wenn ihr das Essen bewertet, gebt beide Bewertungen ein.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -311,6 +350,32 @@ internal fun EditScreen(vm: MealViewModel, date: LocalDate, mealId: String?, ent
         }
     }
     ConfirmDiscardChangesDialog(confirmDiscard, { confirmDiscard = false }, done)
+    val ingredientMeal = selectedMeal ?: chosen
+    if (groceryReviewVisible && ingredientMeal != null) GroceryReviewDialog(ingredientMeal, { groceryReviewVisible = false }) { selections ->
+        groceryVm.addRecipeIngredients(selections) { success ->
+            if (success) groceryReviewVisible = false
+            scope.launch { grocerySnackbar.showSnackbar(if (success) "Zutaten wurden zum Einkauf hinzugefügt." else "Zutaten konnten nicht hinzugefügt werden.") }
+        }
+    }
+    if (reloadIngredientsConfirmationVisible && ingredientMeal != null) AlertDialog(
+        onDismissRequest = { reloadIngredientsConfirmationVisible = false },
+        title = { Text("Zutaten ersetzen?") },
+        text = { Text("Die gespeicherten Zutaten und deine Änderungen werden durch die neu geladenen Angaben ersetzt.") },
+        confirmButton = {
+            TextButton({
+                reloadIngredientsConfirmationVisible = false
+                extractingIngredients = true
+                vm.extractIngredients(ingredientMeal) { extracted ->
+                    extractingIngredients = false
+                    if (selectedMeal == null && extracted != null) chosen = ingredientMeal.copy(
+                        recipeServings = extracted.recipeServings,
+                        ingredients = extracted.ingredients,
+                    )
+                }
+            }) { Text("Ersetzen") }
+        },
+        dismissButton = { TextButton({ reloadIngredientsConfirmationVisible = false }) { Text("Abbrechen") } },
+    )
 }
 
 @Composable

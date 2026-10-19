@@ -188,7 +188,7 @@ internal fun MampfiApp(
                     },
                 )
             }
-            composable("bearbeiten/{date}?meal={meal}&entry={entry}") { entry -> EditScreen(vm, LocalDate.parse(entry.arguments!!.getString("date")!!), entry.arguments?.getString("meal"), entry.arguments?.getString("entry"), appSettings.firstRaterName, appSettings.secondRaterName) { nav.popBackStack() } }
+            composable("bearbeiten/{date}?meal={meal}&entry={entry}") { entry -> EditScreen(vm, groceryVm, LocalDate.parse(entry.arguments!!.getString("date")!!), entry.arguments?.getString("meal"), entry.arguments?.getString("entry"), appSettings.firstRaterName, appSettings.secondRaterName) { nav.popBackStack() } }
         }
     }
 }
