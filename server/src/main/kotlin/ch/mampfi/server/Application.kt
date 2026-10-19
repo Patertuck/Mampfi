@@ -52,12 +52,13 @@ fun main(args: Array<String>) {
 fun Application.module(
     databasePath: String = System.getenv("DATABASE_URL") ?: "mampfi.db",
     uploadDirectory: File = File(System.getenv("UPLOAD_DIR") ?: "uploads"),
-    groceryCatalog: GroceryCatalogProvider = OpenFoodFactsCatalog(),
+    groceryCatalog: GroceryCatalogProvider? = null,
 ) {
     val uploads = uploadDirectory.apply { mkdirs() }
     val repository = MealRepository(databasePath)
     val groceryRepository = GroceryRepository(databasePath)
     val logger = environment.log
+    val catalog = groceryCatalog ?: OpenFoodFactsCatalog(reportError = { logger.warn("Open Food Facts search failed", it) })
     install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; encodeDefaults = true }) }
     install(CORS) { anyHost(); allowMethod(HttpMethod.Delete); allowMethod(HttpMethod.Put); allowHeader(HttpHeaders.ContentType) }
     install(StatusPages) { exception<Throwable> { call, cause ->
@@ -77,7 +78,7 @@ fun Application.module(
                     return@post
                 }
                 val local = groceryRepository.manualSuggestions(query)
-                val remote = if (query.length >= 3) groceryCatalog.search(query) else emptyList()
+                val remote = if (query.length >= 3) catalog.search(query) else emptyList()
                 val merged = (local + remote).distinctBy { it.product.stableKey }.map { suggestion ->
                     groceryRepository.categoryFor(suggestion.product.stableKey)?.let { suggestion.copy(category = it) } ?: suggestion
                 }

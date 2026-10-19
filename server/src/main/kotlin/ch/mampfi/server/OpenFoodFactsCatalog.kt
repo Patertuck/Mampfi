@@ -16,6 +16,7 @@ interface GroceryCatalogProvider {
 class OpenFoodFactsCatalog(
     private val endpoint: String = "https://search.openfoodfacts.org/search",
     private val client: HttpClient = HttpClient(CIO),
+    private val reportError: (Throwable) -> Unit = {},
 ) : GroceryCatalogProvider {
     private data class CacheEntry(val createdAt: Instant, val results: List<GrocerySuggestion>)
     private val json = Json { ignoreUnknownKeys = true }
@@ -33,22 +34,22 @@ class OpenFoodFactsCatalog(
             requestTimes.addLast(Instant.now())
         }
         return runCatching {
-            val response = client.post(endpoint) {
-                contentType(ContentType.Application.Json)
+            val response = client.get(endpoint) {
                 userAgent("Mampfi/1.0 (private grocery planner; Open Food Facts integration)")
-                setBody(buildJsonObject {
-                    put("q", query.trim())
-                    put("page_size", 12)
-                    put("boost_phrase", true)
-                    putJsonArray("langs") { listOf("de", "fr", "it", "en").forEach(::add) }
-                    putJsonArray("fields") {
-                        listOf("code", "product_name", "product_name_de", "product_name_fr", "product_name_it", "brands", "quantity", "image_front_url", "categories_tags").forEach(::add)
-                    }
-                }.toString())
+                url {
+                    parameters.append("q", query.trim())
+                    parameters.append("page_size", "12")
+                    parameters.append("boost_phrase", "true")
+                    parameters.append("langs", "de,fr,it,en")
+                    parameters.append("fields", "code,product_name,product_name_de,product_name_fr,product_name_it,brands,quantity,image_front_url,categories_tags")
+                }
             }
             if (!response.status.isSuccess()) error("Open Food Facts search returned ${response.status}")
             parse(response.bodyAsText()).also { cache[normalized] = CacheEntry(Instant.now(), it) }
-        }.getOrDefault(emptyList())
+        }.getOrElse { error ->
+            reportError(error)
+            emptyList()
+        }
     }
 
     internal fun parse(body: String): List<GrocerySuggestion> {
@@ -100,5 +101,9 @@ class OpenFoodFactsCatalog(
         return rules.firstOrNull { (_, words) -> words.any(text::contains) }?.first ?: GroceryCategory.OTHER
     }
 
-    private fun JsonObject.string(key: String) = get(key)?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+    private fun JsonObject.string(key: String): String? = when (val value = get(key)) {
+        is JsonPrimitive -> value.contentOrNull
+        is JsonArray -> value.firstOrNull()?.jsonPrimitive?.contentOrNull
+        else -> null
+    }?.trim()?.takeIf { it.isNotEmpty() }
 }
