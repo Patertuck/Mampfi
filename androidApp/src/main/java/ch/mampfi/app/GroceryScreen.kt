@@ -16,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
 import ch.mampfi.app.data.*
@@ -47,7 +46,6 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
     var editing by remember { mutableStateOf<GroceryItem?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val uriHandler = LocalUriHandler.current
     val activity = LocalContext.current as Activity
     val scanner = remember(activity) {
         val options = GmsBarcodeScannerOptions.Builder()
@@ -126,11 +124,6 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
                         ) { draft = it }
                     }
                     items(suggestions, key = { it.product.stableKey }) { suggestion -> SuggestionRow(suggestion, false) { draft = it } }
-                    item {
-                        TextButton(onClick = { uriHandler.openUri("https://world.openfoodfacts.org") }) {
-                            Text("Produktdaten: Open Food Facts")
-                        }
-                    }
                     item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
                 }
                 if (active.isEmpty() && query.isBlank()) item { EmptyGroceries("Die Einkaufsliste ist leer.") }
