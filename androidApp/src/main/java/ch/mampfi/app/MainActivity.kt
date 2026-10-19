@@ -76,14 +76,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val endpointStore = remember { EndpointSettingsStore(applicationContext) }
             val settings by endpointStore.settings.collectAsState(initial = null)
-            var baseUrl by remember { mutableStateOf<String?>(null) }
 
             LaunchedEffect(settings) {
-                baseUrl = if (settings?.isConfigured == true) {
-                    ServerEndpointResolver.resolve(settings!!)
-                } else {
-                    null
-                }
+                (application as MampfiApplication).updateEndpointSettings(settings)
             }
 
             when {
@@ -98,18 +93,16 @@ class MainActivity : ComponentActivity() {
                 !settings!!.isConfigured -> {
                     MampfiTheme(settings!!.themeMode) { EndpointSetupScreen(endpointStore) }
                 }
-                baseUrl == null -> {
-                    MampfiTheme(settings!!.themeMode) {
-                        StartupLoadingScreen(
-                            message = "Server wird verbunden …",
-                            revealDetails = revealStartupDetails.value,
-                        )
-                    }
-                }
                 else -> {
-                    val api = remember(baseUrl) {
+                    val configuredSettings = settings!!
+                    val api = remember(
+                        configuredSettings.serverBaseUrl,
+                        configuredSettings.accessClientId,
+                        configuredSettings.accessClientSecret,
+                    ) {
                         Retrofit.Builder()
-                            .baseUrl(baseUrl!!)
+                            .baseUrl(configuredSettings.serverBaseUrl)
+                            .client(authenticatedHttpClient(settings = { configuredSettings }))
                             .addConverterFactory(
                                 Json { ignoreUnknownKeys = true }
                                     .asConverterFactory("application/json".toMediaType()),
@@ -118,12 +111,11 @@ class MainActivity : ComponentActivity() {
                             .create(MealApi::class.java)
                     }
                     val vm: MealViewModel = viewModel(
-                        key = baseUrl,
-                        factory = MealViewModelFactory(MealRepository(api, db.meals(), db.awayEntries(), baseUrl!!)),
+                        key = "${configuredSettings.serverBaseUrl}|${configuredSettings.accessClientId}|${configuredSettings.accessClientSecret.hashCode()}",
+                        factory = MealViewModelFactory(MealRepository(api, db.meals(), db.awayEntries(), configuredSettings.serverBaseUrl)),
                     )
                     MampfiApp(
                         vm,
-                        connectedViaTailscale = baseUrl == settings!!.tailscaleBaseUrl,
                         endpointStore = endpointStore,
                         themeMode = settings!!.themeMode,
                         pendingSharedMeal = pendingSharedMeal,

@@ -22,13 +22,25 @@ class EndpointSettingsTest {
 
     @Test
     fun `endpoint is normalized before connection testing or saving`() {
-        assertEquals("http://192.168.1.50:8080/", EndpointSettingsStore.normalizeEndpoint(" http://192.168.1.50:8080 "))
-        assertEquals("https://mampfi.example/", EndpointSettingsStore.normalizeEndpoint("https://mampfi.example/"))
+        assertEquals("https://mampfi.example/", EndpointSettingsStore.normalizeEndpoint(" HTTPS://MAMPFI.EXAMPLE "))
+        assertEquals("https://mampfi.example:8443/", EndpointSettingsStore.normalizeEndpoint("https://mampfi.example:8443/"))
     }
 
     @Test
     fun `endpoint rejects unsupported or incomplete addresses`() {
         assertFailsWith<IllegalArgumentException> { EndpointSettingsStore.normalizeEndpoint("mampfi.example") }
         assertFailsWith<IllegalArgumentException> { EndpointSettingsStore.normalizeEndpoint("ftp://mampfi.example") }
+        assertFailsWith<IllegalArgumentException> { EndpointSettingsStore.normalizeEndpoint("http://mampfi.example") }
+        assertFailsWith<IllegalArgumentException> { EndpointSettingsStore.normalizeEndpoint("https://mampfi.example/api") }
+        assertFailsWith<IllegalArgumentException> { EndpointSettingsStore.normalizeEndpoint("https://mampfi.example/?token=no") }
+    }
+
+    @Test
+    fun `configuration requires endpoint and both access credentials`() {
+        assertEquals(false, EndpointSettings(serverBaseUrl = "https://mampfi.example/").isConfigured)
+        assertEquals(
+            true,
+            EndpointSettings("https://mampfi.example/", "client", "secret").isConfigured,
+        )
     }
 }

@@ -6,6 +6,9 @@ build/
 *.iml
 local.properties
 mampfi.local.properties
+.env
+.env.*
+!.env.example
 mampfi-image*.tar
 server/mampfi.db
 server/uploads/

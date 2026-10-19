@@ -29,7 +29,6 @@ import java.time.LocalDate
 @Composable
 internal fun MampfiApp(
     vm: MealViewModel,
-    connectedViaTailscale: Boolean = false,
     endpointStore: EndpointSettingsStore,
     themeMode: ThemeMode = ThemeMode.DARK,
     updateVm: UpdateViewModel = viewModel(),
@@ -63,9 +62,6 @@ internal fun MampfiApp(
         }
     }
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }
-    LaunchedEffect(connectedViaTailscale) {
-        if (connectedViaTailscale) snackbar.showSnackbar("Verbunden über Tailscale")
-    }
     LaunchedEffect(pendingSharedMeal) {
         pendingSharedMeal?.let { draft ->
             sharedMealName = draft.name

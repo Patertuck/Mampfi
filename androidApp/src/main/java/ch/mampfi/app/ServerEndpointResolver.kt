@@ -2,22 +2,23 @@ package ch.mampfi.app
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.TimeUnit
+
+enum class ConnectionCheckResult { CONNECTED, ACCESS_DENIED, UNAVAILABLE }
 
 object ServerEndpointResolver {
-    private val client = OkHttpClient.Builder().callTimeout(1500, TimeUnit.MILLISECONDS).build()
-
-    suspend fun resolve(settings: EndpointSettings): String = withContext(Dispatchers.IO) {
-        ApiConfig.candidates(settings).firstOrNull(::isReachable) ?: settings.lanBaseUrl
+    suspend fun check(settings: EndpointSettings): ConnectionCheckResult = withContext(Dispatchers.IO) {
+        runCatching {
+            authenticatedHttpClient({ settings }, callTimeoutMillis = 3_000, followRedirects = false)
+                .newCall(Request.Builder().url("${settings.serverBaseUrl}api/mahlzeiten").build())
+                .execute()
+                .use { response ->
+                    when {
+                        response.isSuccessful -> ConnectionCheckResult.CONNECTED
+                        response.code == 401 || response.code == 403 || response.isRedirect -> ConnectionCheckResult.ACCESS_DENIED
+                        else -> ConnectionCheckResult.UNAVAILABLE
+                    }
+                }
+        }.getOrDefault(ConnectionCheckResult.UNAVAILABLE)
     }
-
-    suspend fun check(baseUrl: String): Boolean = withContext(Dispatchers.IO) {
-        isReachable(baseUrl)
-    }
-
-    private fun isReachable(baseUrl: String): Boolean = runCatching {
-        client.newCall(Request.Builder().url("${baseUrl}api/mahlzeiten").build()).execute().use { it.isSuccessful }
-    }.getOrDefault(false)
 }

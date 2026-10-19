@@ -15,12 +15,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-private enum class ConnectionCheckState { IDLE, TESTING, CONNECTED, UNAVAILABLE, INVALID }
+private enum class ConnectionCheckState { IDLE, TESTING, CONNECTED, ACCESS_DENIED, UNAVAILABLE, INVALID }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,20 +33,20 @@ fun EndpointSetupScreen(
     saved: () -> Unit = {},
 ) {
     val settings by store.settings.collectAsState(initial = null)
-    var lanUrl by remember { mutableStateOf("") }
-    var tailscaleUrl by remember { mutableStateOf("") }
+    var serverUrl by remember { mutableStateOf("") }
+    var accessClientId by remember { mutableStateOf("") }
+    var accessClientSecret by remember { mutableStateOf("") }
     var firstRaterName by remember { mutableStateOf(DEFAULT_FIRST_RATER_NAME) }
     var secondRaterName by remember { mutableStateOf(DEFAULT_SECOND_RATER_NAME) }
     var error by remember { mutableStateOf<String?>(null) }
     var initialized by remember { mutableStateOf(false) }
-    var lanCheck by remember { mutableStateOf(ConnectionCheckState.IDLE) }
-    var tailscaleCheck by remember { mutableStateOf(ConnectionCheckState.IDLE) }
+    var connectionCheck by remember { mutableStateOf(ConnectionCheckState.IDLE) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(settings) {
         if (!initialized && settings != null) {
-            lanUrl = settings!!.lanBaseUrl
-            tailscaleUrl = settings!!.tailscaleBaseUrl
+            serverUrl = settings!!.serverBaseUrl
+            accessClientId = settings!!.accessClientId
             firstRaterName = settings!!.firstRaterName
             secondRaterName = settings!!.secondRaterName
             initialized = true
@@ -55,24 +54,24 @@ fun EndpointSetupScreen(
     }
 
     fun resetConnectionChecks() {
-        lanCheck = ConnectionCheckState.IDLE
-        tailscaleCheck = ConnectionCheckState.IDLE
+        connectionCheck = ConnectionCheckState.IDLE
     }
-    suspend fun checkAddress(value: String): ConnectionCheckState {
-        val normalized = runCatching { EndpointSettingsStore.normalizeEndpoint(value) }.getOrNull()
+    suspend fun checkAddress(): ConnectionCheckState {
+        val normalized = runCatching { EndpointSettingsStore.normalizeEndpoint(serverUrl) }.getOrNull()
             ?: return ConnectionCheckState.INVALID
-        return if (ServerEndpointResolver.check(normalized)) ConnectionCheckState.CONNECTED else ConnectionCheckState.UNAVAILABLE
+        val secret = accessClientSecret.ifBlank { settings?.accessClientSecret.orEmpty() }
+        if (accessClientId.isBlank() || secret.isBlank()) return ConnectionCheckState.INVALID
+        val candidate = EndpointSettings(normalized, accessClientId.trim(), secret)
+        return when (ServerEndpointResolver.check(candidate)) {
+            ConnectionCheckResult.CONNECTED -> ConnectionCheckState.CONNECTED
+            ConnectionCheckResult.ACCESS_DENIED -> ConnectionCheckState.ACCESS_DENIED
+            ConnectionCheckResult.UNAVAILABLE -> ConnectionCheckState.UNAVAILABLE
+        }
     }
     fun testConnections() {
         scope.launch {
-            lanCheck = ConnectionCheckState.TESTING
-            tailscaleCheck = if (tailscaleUrl.isBlank()) ConnectionCheckState.IDLE else ConnectionCheckState.TESTING
-            coroutineScope {
-                val lanResult = async { checkAddress(lanUrl) }
-                val tailscaleResult = tailscaleUrl.takeIf { it.isNotBlank() }?.let { value -> async { checkAddress(value) } }
-                lanCheck = lanResult.await()
-                tailscaleCheck = tailscaleResult?.await() ?: ConnectionCheckState.IDLE
-            }
+            connectionCheck = ConnectionCheckState.TESTING
+            connectionCheck = checkAddress()
         }
     }
 
@@ -88,7 +87,7 @@ fun EndpointSetupScreen(
         Text(if (configured) "Einstellungen" else "Mampfi einrichten", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text(
             if (configured) "Passt Mampfi an eure Nutzung an."
-            else "Gebt die Server-Adressen und eure Namen für dieses Telefon ein.",
+            else "Gebt die Server-Adresse, die Cloudflare-Zugangsdaten und eure Namen für dieses Telefon ein.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
@@ -113,33 +112,39 @@ fun EndpointSetupScreen(
 
         FormSection("Verbindung") {
             OutlinedTextField(
-                value = lanUrl,
-                onValueChange = { lanUrl = it; error = null; resetConnectionChecks() },
+                value = serverUrl,
+                onValueChange = { serverUrl = it; error = null; resetConnectionChecks() },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("LAN-Adresse") },
-                placeholder = { Text("http://192.168.1.50:8080") },
+                label = { Text("Server-Adresse") },
+                placeholder = { Text("https://mampfi.example.com") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 singleLine = true,
-                isError = error != null || lanCheck == ConnectionCheckState.INVALID,
-                supportingText = { ConnectionCheckText(lanCheck) },
+                isError = error != null || connectionCheck == ConnectionCheckState.INVALID,
             )
             OutlinedTextField(
-                value = tailscaleUrl,
-                onValueChange = { tailscaleUrl = it; error = null; resetConnectionChecks() },
+                value = accessClientId,
+                onValueChange = { accessClientId = it; error = null; resetConnectionChecks() },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Tailscale-Adresse (optional)") },
-                placeholder = { Text("http://mampfi.tailnet.ts.net:8080") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                label = { Text("Cloudflare Client-ID") },
                 singleLine = true,
-                isError = tailscaleCheck == ConnectionCheckState.INVALID,
-                supportingText = { ConnectionCheckText(tailscaleCheck) },
             )
+            OutlinedTextField(
+                value = accessClientSecret,
+                onValueChange = { accessClientSecret = it; error = null; resetConnectionChecks() },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Cloudflare Client-Secret") },
+                placeholder = { Text(if (settings?.accessClientSecret.isNullOrBlank()) "Secret einfügen" else "Leer lassen, um es beizubehalten") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+            )
+            ConnectionCheckText(connectionCheck)
             OutlinedButton(
                 onClick = ::testConnections,
-                enabled = lanCheck != ConnectionCheckState.TESTING && tailscaleCheck != ConnectionCheckState.TESTING,
+                enabled = connectionCheck != ConnectionCheckState.TESTING,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                if (lanCheck == ConnectionCheckState.TESTING || tailscaleCheck == ConnectionCheckState.TESTING) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                if (connectionCheck == ConnectionCheckState.TESTING) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 else Icon(Icons.Outlined.Refresh, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("Verbindung testen")
@@ -149,7 +154,14 @@ fun EndpointSetupScreen(
             Button(
                 onClick = {
                     scope.launch {
-                        error = runCatching { store.save(lanUrl, tailscaleUrl, firstRaterName, secondRaterName) }.exceptionOrNull()?.message
+                        error = runCatching {
+                            val savedClientId = settings?.accessClientId.orEmpty()
+                            val effectiveSecret = accessClientSecret.ifBlank {
+                                require(accessClientId.trim() == savedClientId) { "Bei einer neuen Client-ID muss auch das Client-Secret eingegeben werden" }
+                                settings?.accessClientSecret.orEmpty()
+                            }
+                            store.save(serverUrl, accessClientId, effectiveSecret, firstRaterName, secondRaterName)
+                        }.exceptionOrNull()?.message
                         if (error == null) saved()
                     }
                 },
@@ -213,21 +225,22 @@ private fun ConnectionCheckText(state: ConnectionCheckState) {
         ConnectionCheckState.IDLE -> return
         ConnectionCheckState.TESTING -> "Verbindung wird geprüft …"
         ConnectionCheckState.CONNECTED -> "Verbindung erfolgreich"
+        ConnectionCheckState.ACCESS_DENIED -> "Cloudflare-Zugangsdaten wurden abgelehnt"
         ConnectionCheckState.UNAVAILABLE -> "Server nicht erreichbar"
-        ConnectionCheckState.INVALID -> "Ungültige Server-Adresse"
+        ConnectionCheckState.INVALID -> "Adresse oder Zugangsdaten sind ungültig"
     }
     val color = when (state) {
         ConnectionCheckState.CONNECTED -> MaterialTheme.colorScheme.primary
-        ConnectionCheckState.UNAVAILABLE, ConnectionCheckState.INVALID -> MaterialTheme.colorScheme.error
+        ConnectionCheckState.ACCESS_DENIED, ConnectionCheckState.UNAVAILABLE, ConnectionCheckState.INVALID -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         when (state) {
             ConnectionCheckState.CONNECTED -> Icon(Icons.Outlined.CheckCircle, null, Modifier.size(16.dp), tint = color)
-            ConnectionCheckState.UNAVAILABLE, ConnectionCheckState.INVALID -> Icon(Icons.Outlined.ErrorOutline, null, Modifier.size(16.dp), tint = color)
+            ConnectionCheckState.ACCESS_DENIED, ConnectionCheckState.UNAVAILABLE, ConnectionCheckState.INVALID -> Icon(Icons.Outlined.ErrorOutline, null, Modifier.size(16.dp), tint = color)
             else -> Unit
         }
-        if (state in setOf(ConnectionCheckState.CONNECTED, ConnectionCheckState.UNAVAILABLE, ConnectionCheckState.INVALID)) Spacer(Modifier.width(4.dp))
+        if (state in setOf(ConnectionCheckState.CONNECTED, ConnectionCheckState.ACCESS_DENIED, ConnectionCheckState.UNAVAILABLE, ConnectionCheckState.INVALID)) Spacer(Modifier.width(4.dp))
         Text(message, color = color)
     }
 }

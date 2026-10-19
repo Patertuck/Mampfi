@@ -3,7 +3,7 @@ services:
     image: ghcr.io/patertuck/mampfi-backend:${MAMPFI_IMAGE_TAG:-latest}
     pull_policy: always
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       PORT: "8080"
       DATABASE_URL: /data/mampfi.db
@@ -16,6 +16,16 @@ services:
       com.centurylinklabs.watchtower.lifecycle.pre-update: "/app/bin/server backup-before-update"
     restart: unless-stopped
     stop_grace_period: 30s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    pull_policy: always
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    depends_on:
+      - mampfi
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    restart: unless-stopped
 
   watchtower:
     image: ghcr.io/nicholas-fedor/watchtower:1.20.0

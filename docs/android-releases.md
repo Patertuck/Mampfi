@@ -1,6 +1,6 @@
 # Android releases
 
-The app does not contain LAN or Tailscale addresses. Each phone asks for them at its first launch and stores them privately on that device. They can later be changed through **Einstellungen** in the app.
+The app contains neither the server hostname nor Cloudflare credentials. Each phone asks for its HTTPS server address and its own Cloudflare Access service-token pair on first launch. The Client Secret is encrypted with a non-exportable Android Keystore key and can later be replaced through **Einstellungen** without being displayed.
 
 Every push to `main` runs `.github/workflows/android-release.yml`. A successful run creates a signed APK and a GitHub Release containing an `update.json` manifest. On launch, a release APK checks the latest manifest and shows a non-blocking banner when a newer version exists. The download continues through Android's download manager while the app remains usable; its progress and the finished installer remain available under **Einstellungen → App-Informationen**.
 

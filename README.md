@@ -6,26 +6,22 @@ Privater Mahlzeitenplaner für zwei Nutzer. Das Repository besteht aus einer And
 
 Server: `./gradlew :server:run` (Windows: `./gradlew.bat :server:run`). Standardmäßig läuft er auf `http://localhost:8080`.
 
-## Homeserver im LAN
+## Homeserver mit Cloudflare Tunnel
 
-1. Gib dem Homeserver im Router eine feste DHCP-Reservierung, zum Beispiel `192.168.1.50`.
-2. Kopiere das Repository auf den Linux-Homeserver und starte dort:
+Der produktive Server wird ausschließlich über einen Cloudflare Tunnel erreicht. Cloudflare Access schützt API und Bilder mit einem eigenen Service Token pro Telefon. Es ist keine Portweiterleitung im Router und weder Tailscale noch Cloudflare One Agent auf den Telefonen erforderlich.
+
+1. Richte Tunnel, Hostname, Access-Anwendung und Telefon-Tokens gemäß [Backend-Deployment](docs/backend-deployment.md#cloudflare-tunnel-and-access) ein.
+2. Kopiere `.env.example` auf dem Homeserver nach `.env` und trage den Tunnel-Token ein.
+3. Starte den Stack:
 
    ```bash
-   docker compose up -d --build
-   curl http://192.168.1.50:8080/api/mahlzeiten
+   docker compose pull
+   docker compose up -d
+   curl http://127.0.0.1:8080/api/mahlzeiten
    ```
 
-   Docker speichert Datenbank und Bilder dauerhaft in `data/`.
-3. Baue die Android-App:
-
-   ```powershell
-   .\gradlew.bat :androidApp:assembleDebug
-   ```
-
-   Beim ersten Start fragt die App nach der LAN-Adresse. Wenn du Tailscale verwendest, trägst du dort auch die optionale Tailscale-Adresse ein. Die App probiert zuerst LAN und verwendet Tailscale, wenn der LAN-Server nicht erreichbar ist.
-
-Der Server bietet keine Anmeldung und ist deshalb ausschließlich für ein vertrauenswürdiges privates Netzwerk oder Tailnet gedacht.
+   Datenbank, Bilder und Backups liegen dauerhaft in `data/`. Port 8080 ist nur an die Loopback-Adresse des Homeservers gebunden.
+4. Baue die Android-App mit `./gradlew :androidApp:assembleDebug` (Windows: `.\gradlew.bat :androidApp:assembleDebug`). Beim ersten Start werden der HTTPS-Hostname sowie Client-ID und Client-Secret des jeweiligen Telefon-Tokens eingegeben.
 
 ## Android-Releases
 

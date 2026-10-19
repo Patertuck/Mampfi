@@ -1,5 +1,33 @@
 # Automated backend deployment
 
+## Cloudflare Tunnel and Access
+
+The production API is published through a remotely managed Cloudflare Tunnel and protected by Cloudflare Access. The origin port is bound to `127.0.0.1`, so it is not directly reachable from the LAN or Internet.
+
+1. In **Cloudflare Zero Trust → Networks → Tunnels**, create a remotely managed tunnel and copy its token.
+2. Add a published application route such as `mampfi.example.com` with service URL `http://mampfi:8080`. The service name works because `cloudflared` and Mampfi share the Compose network.
+3. In **Access controls → Applications**, create a self-hosted application for the same hostname.
+4. In **Access controls → Service credentials → Service tokens**, create a separate token for each phone. Save each Client ID and Client Secret immediately; Cloudflare only shows the secret at creation time.
+5. Add a **Service Auth** policy to the application that includes those service tokens. Do not add a public Bypass policy.
+6. On the homeserver, create the untracked `.env` from `.env.example` and set `CLOUDFLARE_TUNNEL_TOKEN`.
+7. Start the stack and verify both the origin and Access boundary:
+
+   ```bash
+   docker compose up -d
+   curl http://127.0.0.1:8080/api/mahlzeiten
+   curl -i https://mampfi.example.com/api/mahlzeiten
+   curl -i \
+     -H "CF-Access-Client-Id: PHONE_CLIENT_ID" \
+     -H "CF-Access-Client-Secret: PHONE_CLIENT_SECRET" \
+     https://mampfi.example.com/api/mahlzeiten
+   ```
+
+   The unauthenticated public request must be denied; the request with an allowed token must return `200`.
+
+Enter the hostname and one phone-specific credential pair in Mampfi on each phone. To rotate a token, create or rotate it in Cloudflare, enter the new pair in Mampfi, test the connection, save, and then revoke the old token. A lost phone can be blocked independently by deleting only its token.
+
+For migration, keep the old Tailscale path available until the tunnel is verified and both phones have installed and configured the new app. Afterwards, remove the Tailscale exposure.
+
 The backend image is published to `ghcr.io/patertuck/mampfi-backend` when relevant files are pushed to `master`. The image is tagged both as `latest` and as `sha-<full-commit-sha>`.
 
 ## Build platform
@@ -72,4 +100,4 @@ docker compose up -d
 
 The deployment snapshots cover SQLite rollback. Continue backing up the complete `data/` directory separately so uploaded pictures are also protected.
 
-Watchtower updates the backend image only. Changes to `compose.yaml`, ports, volumes, environment variables, or Watchtower itself still require a manual `git pull --ff-only` and `docker compose up -d` on the homeserver.
+Watchtower updates the labeled backend and `cloudflared` images. Changes to `compose.yaml`, ports, volumes, environment variables, or Watchtower itself still require a manual `git pull --ff-only` and `docker compose up -d` on the homeserver.
