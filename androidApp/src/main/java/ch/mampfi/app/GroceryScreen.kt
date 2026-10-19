@@ -291,7 +291,7 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
     allowedUnits: List<GroceryUnit>,
     confirmLabel: String,
     dismiss: () -> Unit,
-    confirm: (Long, GroceryUnit, GroceryCategory) -> Unit,
+    confirm: (Double, GroceryUnit, GroceryCategory) -> Unit,
 ) {
     var amount by remember(title, initialQuantity) { mutableStateOf(initialQuantity) }
     var unit by remember(title, initialUnit) { mutableStateOf(initialUnit) }
@@ -329,6 +329,7 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
 private fun manualKey(name: String) = "manual:" + name.trim().lowercase().replace(Regex("[^a-z0-9äöüéèà]+"), "-").trim('-').ifBlank { UUID.randomUUID().toString() }
 private fun quantityInput(item: GroceryItem) = when (item.preferredUnit) {
     GroceryUnit.KG, GroceryUnit.L -> (item.baseQuantity / 1000.0).toString().replace('.', ',')
+    GroceryUnit.DL -> (item.baseQuantity / 100.0).toString().replace('.', ',')
     else -> item.baseQuantity.toString()
 }
 private fun historyDate(value: String): String = Instant.parse(value).atZone(ZoneId.of("Europe/Zurich")).toLocalDate()

@@ -5,6 +5,7 @@ import retrofit2.http.*
 import retrofit2.Response
 
 interface MealApi {
+    @POST("api/rezepte/extrahieren") suspend fun extractRecipe(@Body request: RecipeExtractRequest): RecipeExtractResponse
     @POST("api/einkauf/suche") suspend fun searchGroceries(@Body request: GrocerySearchRequest): List<GrocerySuggestion>
     @GET("api/einkauf/produkt/{barcode}") suspend fun groceryByBarcode(@Path("barcode") barcode: String): Response<GrocerySuggestion>
     @POST("api/einkauf/sync") suspend fun syncGroceries(@Body request: GrocerySyncRequest): GrocerySyncResponse

@@ -18,7 +18,7 @@ class GroceryRepositoryTest {
         repository.sync(GrocerySyncRequest("phone-a", 0, listOf(addFirst, addFirst)))
         val merged = repository.sync(GrocerySyncRequest("phone-b", 0, listOf(mutation("add-second", GroceryMutationType.ADD, second))))
         val active = merged.changes.single { !it.deleted }
-        assertEquals(1_500, active.baseQuantity)
+        assertEquals(1_500.0, active.baseQuantity)
         assertTrue(merged.changes.any { it.id == second.id && it.deleted })
 
         val completedAt = "2026-10-19T12:00:00Z"
@@ -38,7 +38,7 @@ class GroceryRepositoryTest {
         repository.sync(GrocerySyncRequest("phone", 0, listOf(mutation("b", GroceryMutationType.ADD, active))))
 
         val response = repository.sync(GrocerySyncRequest("phone", 0, listOf(GroceryMutation("r", GroceryMutationType.RESTORE, historical.id, Instant.now().toString()))))
-        assertEquals(750, response.changes.single { it.id == active.id }.baseQuantity)
+        assertEquals(750.0, response.changes.single { it.id == active.id }.baseQuantity)
         assertTrue(response.changes.single { it.id == historical.id }.deleted)
     }
 
@@ -46,7 +46,7 @@ class GroceryRepositoryTest {
         id = id,
         product = GroceryProductRef(GrocerySource.OPEN_FOOD_FACTS, "off:761234", "Testprodukt", barcode = "761234"),
         category = GroceryCategory.PANTRY,
-        baseQuantity = quantity,
+        baseQuantity = quantity.toDouble(),
         dimension = GroceryDimension.WEIGHT,
         preferredUnit = unit,
         createdAt = Instant.now().toString(),

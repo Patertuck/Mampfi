@@ -60,11 +60,11 @@ class GroceryRepository(database: String) {
 
     private fun add(item: GroceryItem): String? {
         validate(item)?.let { return it }
-        val existing = activeMatch(item.product.stableKey, item.dimension)
+        val existing = activeMatch(item)
         val revision = nextRevision()
         if (existing != null) {
             connection.prepareStatement("UPDATE grocery_items SET base_quantity = ?, revision = ? WHERE id = ?").use {
-                it.setLong(1, existing.baseQuantity + item.baseQuantity); it.setLong(2, revision); it.setString(3, existing.id); it.executeUpdate()
+                it.setDouble(1, existing.baseQuantity + item.baseQuantity); it.setLong(2, revision); it.setString(3, existing.id); it.executeUpdate()
             }
             if (existing.id != item.id && find(item.id) == null) insert(item.copy(revision = nextRevision(), completedAt = null, deleted = true))
         } else insert(item.copy(revision = revision, completedAt = null, deleted = false))
@@ -78,11 +78,12 @@ class GroceryRepository(database: String) {
         if (current.deleted || current.completedAt != null) return "Nur offene Einträge können bearbeitet werden"
         val revision = nextRevision()
         connection.prepareStatement(
-            "UPDATE grocery_items SET product_json = ?, stable_key = ?, category = ?, base_quantity = ?, dimension = ?, preferred_unit = ?, revision = ? WHERE id = ?",
+            "UPDATE grocery_items SET product_json = ?, stable_key = ?, category = ?, base_quantity = ?, dimension = ?, preferred_unit = ?, custom_unit = ?, quantity_specified = ?, revision = ? WHERE id = ?",
         ).use {
             it.setString(1, json.encodeToString(GroceryProductRef.serializer(), item.product)); it.setString(2, item.product.stableKey)
-            it.setString(3, item.category.name); it.setLong(4, item.baseQuantity); it.setString(5, item.dimension.name)
-            it.setString(6, item.preferredUnit.name); it.setLong(7, revision); it.setString(8, item.id); it.executeUpdate()
+            it.setString(3, item.category.name); it.setDouble(4, item.baseQuantity); it.setString(5, item.dimension.name)
+            it.setString(6, item.preferredUnit.name); it.setString(7, item.customUnit); it.setBoolean(8, item.quantitySpecified)
+            it.setLong(9, revision); it.setString(10, item.id); it.executeUpdate()
         }
         rememberProduct(item)
         return null
@@ -100,11 +101,11 @@ class GroceryRepository(database: String) {
     private fun restore(id: String): String? {
         val current = find(id) ?: return "Eintrag existiert nicht"
         if (current.deleted || current.completedAt == null) return null
-        val match = activeMatch(current.product.stableKey, current.dimension)
+        val match = activeMatch(current)
         if (match != null && match.id != current.id) {
             val revision = nextRevision()
             connection.prepareStatement("UPDATE grocery_items SET base_quantity = ?, revision = ? WHERE id = ?").use {
-                it.setLong(1, match.baseQuantity + current.baseQuantity); it.setLong(2, revision); it.setString(3, match.id); it.executeUpdate()
+                it.setDouble(1, match.baseQuantity + current.baseQuantity); it.setLong(2, revision); it.setString(3, match.id); it.executeUpdate()
             }
             connection.prepareStatement("UPDATE grocery_items SET deleted = 1, revision = ? WHERE id = ?").use {
                 it.setLong(1, nextRevision()); it.setString(2, current.id); it.executeUpdate()
@@ -127,7 +128,7 @@ class GroceryRepository(database: String) {
     private fun validate(item: GroceryItem): String? = when {
         item.product.name.isBlank() -> "Name darf nicht leer sein"
         item.product.stableKey.isBlank() -> "Produktschlüssel fehlt"
-        item.baseQuantity <= 0 -> "Menge muss positiv sein"
+        item.quantitySpecified && item.baseQuantity <= 0 -> "Menge muss positiv sein"
         item.preferredUnit.dimension() != item.dimension -> "Einheit passt nicht zur Menge"
         else -> null
     }
@@ -143,10 +144,11 @@ class GroceryRepository(database: String) {
         }
     }
 
-    private fun activeMatch(stableKey: String, dimension: GroceryDimension): GroceryItem? = connection.prepareStatement(
-        "SELECT * FROM grocery_items WHERE stable_key = ? AND dimension = ? AND completed_at IS NULL AND deleted = 0 LIMIT 1",
+    private fun activeMatch(item: GroceryItem): GroceryItem? = connection.prepareStatement(
+        "SELECT * FROM grocery_items WHERE stable_key = ? AND dimension = ? AND (? <> 'OTHER' OR (preferred_unit = ? AND coalesce(custom_unit, '') = coalesce(?, ''))) AND completed_at IS NULL AND deleted = 0 LIMIT 1",
     ).use { statement ->
-        statement.setString(1, stableKey); statement.setString(2, dimension.name)
+        statement.setString(1, item.product.stableKey); statement.setString(2, item.dimension.name); statement.setString(3, item.dimension.name)
+        statement.setString(4, item.preferredUnit.name); statement.setString(5, item.customUnit)
         statement.executeQuery().use { rows -> if (rows.next()) rows.item() else null }
     }
 
@@ -155,11 +157,12 @@ class GroceryRepository(database: String) {
     }
 
     private fun insert(item: GroceryItem) = connection.prepareStatement(
-        "INSERT INTO grocery_items (id, product_json, stable_key, category, base_quantity, dimension, preferred_unit, created_at, completed_at, revision, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO grocery_items (id, product_json, stable_key, category, base_quantity, dimension, preferred_unit, custom_unit, quantity_specified, created_at, completed_at, revision, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).use {
         it.setString(1, item.id); it.setString(2, json.encodeToString(GroceryProductRef.serializer(), item.product)); it.setString(3, item.product.stableKey)
-        it.setString(4, item.category.name); it.setLong(5, item.baseQuantity); it.setString(6, item.dimension.name); it.setString(7, item.preferredUnit.name)
-        it.setString(8, item.createdAt); it.setString(9, item.completedAt); it.setLong(10, item.revision); it.setBoolean(11, item.deleted); it.executeUpdate()
+        it.setString(4, item.category.name); it.setDouble(5, item.baseQuantity); it.setString(6, item.dimension.name); it.setString(7, item.preferredUnit.name)
+        it.setString(8, item.customUnit); it.setBoolean(9, item.quantitySpecified); it.setString(10, item.createdAt); it.setString(11, item.completedAt)
+        it.setLong(12, item.revision); it.setBoolean(13, item.deleted); it.executeUpdate()
     }
 
     private fun changesSince(revision: Long): List<GroceryItem> = connection.prepareStatement(
@@ -170,8 +173,9 @@ class GroceryRepository(database: String) {
 
     private fun java.sql.ResultSet.item() = GroceryItem(
         id = getString("id"), product = json.decodeFromString(getString("product_json")),
-        category = GroceryCategory.valueOf(getString("category")), baseQuantity = getLong("base_quantity"),
+        category = GroceryCategory.valueOf(getString("category")), baseQuantity = getDouble("base_quantity"),
         dimension = GroceryDimension.valueOf(getString("dimension")), preferredUnit = GroceryUnit.valueOf(getString("preferred_unit")),
+        customUnit = getString("custom_unit"), quantitySpecified = getBoolean("quantity_specified"),
         createdAt = getString("created_at"), completedAt = getString("completed_at"), revision = getLong("revision"), deleted = getBoolean("deleted"),
     )
 
@@ -193,11 +197,14 @@ class GroceryRepository(database: String) {
         statement.executeUpdate("CREATE TABLE IF NOT EXISTS grocery_meta (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL)")
         statement.executeUpdate("INSERT OR IGNORE INTO grocery_meta (id, revision) VALUES (1, 0)")
         statement.executeUpdate("CREATE TABLE IF NOT EXISTS grocery_items (id TEXT PRIMARY KEY, product_json TEXT NOT NULL, stable_key TEXT NOT NULL, category TEXT NOT NULL, base_quantity INTEGER NOT NULL, dimension TEXT NOT NULL, preferred_unit TEXT NOT NULL, created_at TEXT NOT NULL, completed_at TEXT, revision INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0)")
+        val columns = statement.executeQuery("PRAGMA table_info(grocery_items)").use { rows -> buildSet { while (rows.next()) add(rows.getString("name")) } }
+        if ("custom_unit" !in columns) statement.executeUpdate("ALTER TABLE grocery_items ADD COLUMN custom_unit TEXT")
+        if ("quantity_specified" !in columns) statement.executeUpdate("ALTER TABLE grocery_items ADD COLUMN quantity_specified INTEGER NOT NULL DEFAULT 1")
         statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_grocery_items_revision ON grocery_items(revision)")
         statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_grocery_items_active ON grocery_items(stable_key, dimension, completed_at, deleted)")
         statement.executeUpdate("CREATE TABLE IF NOT EXISTS grocery_products (stable_key TEXT PRIMARY KEY, name TEXT NOT NULL, product_json TEXT NOT NULL, category TEXT NOT NULL, last_used_at TEXT NOT NULL)")
         statement.executeUpdate("CREATE TABLE IF NOT EXISTS grocery_mutations (operation_id TEXT PRIMARY KEY)")
-        statement.execute("PRAGMA user_version = 6")
+        statement.execute("PRAGMA user_version = 7")
     }
 
     private fun <T> transaction(block: () -> T): T {

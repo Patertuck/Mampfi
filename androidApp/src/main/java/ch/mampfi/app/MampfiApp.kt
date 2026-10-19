@@ -164,6 +164,7 @@ internal fun MampfiApp(
             ) }
             composable("mahlzeit/{meal}") { entry -> MealDetailScreen(
                 vm = vm,
+                groceryVm = groceryVm,
                 mealId = entry.arguments?.getString("meal")!!,
                 firstRaterName = appSettings.firstRaterName,
                 secondRaterName = appSettings.secondRaterName,

@@ -8,14 +8,14 @@ import kotlin.test.assertNull
 
 class GroceryModelsTest {
     @Test fun `quantity input converts compatible units to base values`() {
-        assertEquals(1_500, quantityToBase("1,5", GroceryUnit.KG))
-        assertEquals(750, quantityToBase("0.75", GroceryUnit.L))
-        assertEquals(3, quantityToBase("3", GroceryUnit.PIECE))
+        assertEquals(1_500.0, quantityToBase("1,5", GroceryUnit.KG))
+        assertEquals(750.0, quantityToBase("0.75", GroceryUnit.L))
+        assertEquals(3.0, quantityToBase("3", GroceryUnit.PIECE))
     }
 
-    @Test fun `quantity rejects invalid and fractional base units`() {
+    @Test fun `quantity rejects invalid values and accepts fractional units`() {
         assertNull(quantityToBase("", GroceryUnit.G))
         assertNull(quantityToBase("-2", GroceryUnit.ML))
-        assertNull(quantityToBase("1,5", GroceryUnit.PIECE))
+        assertEquals(1.5, quantityToBase("1,5", GroceryUnit.PIECE))
     }
 }

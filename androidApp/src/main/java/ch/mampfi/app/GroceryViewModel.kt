@@ -41,7 +41,11 @@ class GroceryViewModel(private val repository: GroceryRepository) : ViewModel() 
         result(repository.lookupBarcode(barcode))
     }
     fun showMessage(message: String) = viewModelScope.launch { _message.emit(message) }
-    fun add(suggestion: GrocerySuggestion, baseQuantity: Long, unit: GroceryUnit) = launch("Hinzufügen fehlgeschlagen.") { repository.add(suggestion, baseQuantity, unit) }
+    fun add(suggestion: GrocerySuggestion, baseQuantity: Double, unit: GroceryUnit) = launch("Hinzufügen fehlgeschlagen.") { repository.add(suggestion, baseQuantity, unit) }
+    fun addRecipeIngredients(items: List<RecipeGrocerySelection>, completed: (Boolean) -> Unit = {}) = viewModelScope.launch {
+        repository.addAll(items).onSuccess { _message.emit("${items.size} Zutaten hinzugefügt."); completed(true) }
+            .onFailure { _message.emit("Zutaten konnten nicht hinzugefügt werden."); completed(false) }
+    }
     fun update(item: GroceryItem) = launch("Ändern fehlgeschlagen.") { repository.update(item) }
     fun complete(item: GroceryItem) = launch("Abhaken fehlgeschlagen.") { repository.complete(item) }
     fun restore(item: GroceryItem) = launch("Wiederherstellen fehlgeschlagen.") { repository.restore(item) }

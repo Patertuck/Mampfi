@@ -25,20 +25,30 @@ class GroceryRepository(
         rows.map { json.decodeFromString<GroceryItem>(it.json) }.filterNot { it.deleted }
     }
 
-    suspend fun add(suggestion: GrocerySuggestion, baseQuantity: Long, unit: GroceryUnit): Result<Unit> = runCatching {
-        require(baseQuantity > 0)
+    suspend fun add(suggestion: GrocerySuggestion, baseQuantity: Double, unit: GroceryUnit, customUnit: String? = null, quantitySpecified: Boolean = true): Result<Unit> = runCatching {
+        addLocal(suggestion, baseQuantity, unit, customUnit, quantitySpecified)
+        synchronize()
+    }
+
+    suspend fun addAll(items: List<RecipeGrocerySelection>): Result<Unit> = runCatching {
+        items.forEach { addLocal(it.suggestion, it.baseQuantity, it.unit, it.customUnit, it.quantitySpecified) }
+        synchronize().getOrThrow()
+    }
+
+    private suspend fun addLocal(suggestion: GrocerySuggestion, baseQuantity: Double, unit: GroceryUnit, customUnit: String?, quantitySpecified: Boolean) {
+        require(!quantitySpecified || baseQuantity > 0)
         val now = Instant.now().toString()
         val dimension = unit.dimension()
         val all = decodedItems()
         val existing = all.firstOrNull {
-            !it.deleted && it.completedAt == null && it.product.stableKey == suggestion.product.stableKey && it.dimension == dimension
+            !it.deleted && it.completedAt == null && it.product.stableKey == suggestion.product.stableKey && it.dimension == dimension &&
+                (dimension != GroceryDimension.OTHER || (it.preferredUnit == unit && it.customUnit == customUnit))
         }
         val item = existing?.copy(baseQuantity = existing.baseQuantity + baseQuantity, preferredUnit = existing.preferredUnit)
-            ?: GroceryItem(UUID.randomUUID().toString(), suggestion.product, suggestion.category, baseQuantity, dimension, unit, now)
+            ?: GroceryItem(UUID.randomUUID().toString(), suggestion.product, suggestion.category, baseQuantity, dimension, unit, customUnit, quantitySpecified, now)
         val type = if (existing == null) GroceryMutationType.ADD else GroceryMutationType.UPDATE
         persistLocal(item, GroceryMutation(UUID.randomUUID().toString(), type, item.id, now, item))
         remember(suggestion.copy(category = item.category), now)
-        synchronize()
     }
 
     suspend fun update(item: GroceryItem): Result<Unit> = runCatching {

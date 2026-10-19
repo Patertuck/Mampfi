@@ -63,10 +63,13 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
     }
     fun refresh() = viewModelScope.launch { refreshFromServer(showFailureMessage = true, showActivity = true) }
     fun createMeal(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null, onComplete: (Boolean) -> Unit = {}) = viewModelScope.launch {
-        saveWithOptionalImage(repository.createMeal(meal, entry), meal.id, entry.id, image, onComplete)
+        val saved = repository.createMeal(meal, entry)
+        if (saved.isSuccess) autoExtractIfEmpty(meal)
+        saveWithOptionalImage(saved, meal.id, entry.id, image, onComplete)
     }
     fun saveIdea(meal: Mahlzeit, isNew: Boolean, onComplete: (Boolean) -> Unit) = viewModelScope.launch {
         val result = if (isNew) repository.createIdea(meal) else repository.updateIdea(meal)
+        if (result.isSuccess) autoExtractIfEmpty(meal)
         result
             .onSuccess { _message.emit("Idee gespeichert."); onComplete(true) }
             .onFailure { _message.emit("Speichern fehlgeschlagen."); onComplete(false) }
@@ -83,8 +86,27 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
     }
     fun updateMeal(meal: Mahlzeit, onComplete: (Boolean) -> Unit) = viewModelScope.launch {
         repository.updateMeal(meal)
-            .onSuccess { _message.emit("Mahlzeit gespeichert."); onComplete(true) }
+            .onSuccess { autoExtractIfEmpty(meal); _message.emit("Mahlzeit gespeichert."); onComplete(true) }
             .onFailure { _message.emit("Speichern fehlgeschlagen."); onComplete(false) }
+    }
+    fun extractIngredients(meal: Mahlzeit, onComplete: (RecipeExtractResponse?) -> Unit = {}) = viewModelScope.launch {
+        val link = meal.rezeptLink
+        if (link.isNullOrBlank()) { onComplete(null); return@launch }
+        repository.extractRecipe(link)
+            .onSuccess { extracted ->
+                repository.updateMeal(meal.copy(recipeServings = extracted.recipeServings, ingredients = extracted.ingredients))
+                    .onSuccess { _message.emit("Zutaten wurden geladen."); onComplete(extracted) }
+                    .onFailure { _message.emit("Zutaten konnten nicht gespeichert werden."); onComplete(null) }
+            }
+            .onFailure { _message.emit("Zutaten konnten nicht automatisch erkannt werden."); onComplete(null) }
+    }
+    private suspend fun autoExtractIfEmpty(meal: Mahlzeit) {
+        val link = meal.rezeptLink ?: return
+        if (meal.ingredients.isNotEmpty() || !link.contains("fooby.ch", ignoreCase = true)) return
+        repository.extractRecipe(link).onSuccess { extracted ->
+            repository.updateMeal(meal.copy(recipeServings = extracted.recipeServings, ingredients = extracted.ingredients))
+            refreshFromServer(showFailureMessage = false, showActivity = false)
+        }.onFailure { _message.emit("Zutaten konnten nicht automatisch erkannt werden. Du kannst sie manuell erfassen.") }
     }
     fun createEntry(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null, onComplete: (Boolean) -> Unit = {}) = viewModelScope.launch {
         saveWithOptionalImage(repository.createEntry(meal, entry), meal.id, entry.id, image, onComplete)

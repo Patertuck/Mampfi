@@ -11,6 +11,16 @@ import java.util.UUID
 enum class Tag(val label: String) { VEGETARISCH("Vegetarisch"), VEGAN("Vegan"), DESSERT("Dessert"), AUFWANDIG("Aufwändig") }
 @Serializable data class MahlzeitBild(val id: String = UUID.randomUUID().toString(), val url: String)
 @Serializable data class MahlzeitBewertung(val werte: List<Double>)
+@Serializable data class RecipeIngredient(
+    val id: String = UUID.randomUUID().toString(), val name: String, val amount: String? = null,
+    val unit: GroceryUnit = GroceryUnit.PIECE, val customUnit: String? = null,
+    val category: GroceryCategory = GroceryCategory.OTHER, val note: String? = null,
+)
+@Serializable data class RecipeExtractRequest(val url: String)
+@Serializable data class RecipeExtractResponse(
+    val source: String, val title: String? = null, val recipeServings: Int? = null,
+    val ingredients: List<RecipeIngredient>,
+)
 @Serializable data class AuswaertsEintrag(
     val id: String = UUID.randomUUID().toString(), val datum: String, val notiz: String? = null,
 )
@@ -26,6 +36,8 @@ data class DatiertesMahlzeitBild(val url: String, val datum: String)
     val id: String = UUID.randomUUID().toString(), val name: String, val rezeptLink: String? = null,
     val tags: List<String> = emptyList(), val istIdee: Boolean = false, val eintraege: List<MahlzeitEintrag> = emptyList(),
     val notiz: String? = null,
+    val recipeServings: Int? = null,
+    val ingredients: List<RecipeIngredient> = emptyList(),
 ) {
     val termine get() = eintraege.map { it.datum }
     val bilder get() = eintraege.flatMap { entry -> entry.bilder.map { DatiertesMahlzeitBild(it.url, entry.datum) } }

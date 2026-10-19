@@ -2,13 +2,13 @@ package ch.mampfi.server
 
 import kotlinx.serialization.Serializable
 
-@Serializable enum class GrocerySource { OPEN_FOOD_FACTS, MANUAL }
+@Serializable enum class GrocerySource { OPEN_FOOD_FACTS, MANUAL, RECIPE }
 @Serializable enum class GroceryCategory {
     FRUIT, VEGETABLES, BAKERY, DAIRY_EGGS, MEAT_FISH, CHILLED, PANTRY,
     SPICES_SAUCES, SWEETS_SNACKS, FROZEN, DRINKS, HOUSEHOLD_HYGIENE, OTHER,
 }
-@Serializable enum class GroceryDimension { COUNT, WEIGHT, VOLUME }
-@Serializable enum class GroceryUnit { PIECE, G, KG, ML, L }
+@Serializable enum class GroceryDimension { COUNT, WEIGHT, VOLUME, OTHER }
+@Serializable enum class GroceryUnit { PIECE, G, KG, ML, DL, L, TSP, TBSP, PINCH, BUNCH, PACKAGE, CAN, CLOVE, CUBE, CUSTOM }
 
 @Serializable data class GroceryProductRef(
     val source: GrocerySource,
@@ -24,9 +24,11 @@ import kotlinx.serialization.Serializable
     val id: String,
     val product: GroceryProductRef,
     val category: GroceryCategory,
-    val baseQuantity: Long,
+    val baseQuantity: Double,
     val dimension: GroceryDimension,
     val preferredUnit: GroceryUnit,
+    val customUnit: String? = null,
+    val quantitySpecified: Boolean = true,
     val createdAt: String,
     val completedAt: String? = null,
     val revision: Long = 0,
@@ -58,5 +60,6 @@ import kotlinx.serialization.Serializable
 internal fun GroceryUnit.dimension() = when (this) {
     GroceryUnit.PIECE -> GroceryDimension.COUNT
     GroceryUnit.G, GroceryUnit.KG -> GroceryDimension.WEIGHT
-    GroceryUnit.ML, GroceryUnit.L -> GroceryDimension.VOLUME
+    GroceryUnit.ML, GroceryUnit.DL, GroceryUnit.L -> GroceryDimension.VOLUME
+    else -> GroceryDimension.OTHER
 }

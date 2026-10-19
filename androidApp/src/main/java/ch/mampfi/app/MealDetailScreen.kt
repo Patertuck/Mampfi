@@ -11,6 +11,10 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -28,10 +32,13 @@ import coil3.compose.AsyncImage
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.UUID
+import java.math.BigDecimal
 
 @Composable
 internal fun MealDetailScreen(
     vm: MealViewModel,
+    groceryVm: GroceryViewModel,
     mealId: String,
     firstRaterName: String,
     secondRaterName: String,
@@ -41,6 +48,9 @@ internal fun MealDetailScreen(
 ) {
     val meal = vm.meals.collectAsState().value.find { it.id == mealId }
     var galleryImageUrl by remember { mutableStateOf<String?>(null) }
+    var ingredientEditorVisible by remember { mutableStateOf(false) }
+    var groceryReviewVisible by remember { mutableStateOf(false) }
+    var reloadConfirmationVisible by remember { mutableStateOf(false) }
     if (meal == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
@@ -100,6 +110,25 @@ internal fun MealDetailScreen(
                     }
                 }
                 meal.notiz?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+        }
+        item {
+            FormSection("Zutaten") {
+                if (meal.ingredients.isEmpty()) Text("Noch keine Zutaten erfasst.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                meal.recipeServings?.let { Text("Grundmenge für $it Personen", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) }
+                meal.ingredients.forEach { ingredient ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(ingredient.displayAmount(), Modifier.widthIn(min = 72.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(ingredient.name, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton({ ingredientEditorVisible = true }, Modifier.weight(1f)) { Icon(Icons.Outlined.Edit, null); Spacer(Modifier.width(6.dp)); Text("Bearbeiten") }
+                    OutlinedButton({ if (meal.ingredients.isEmpty()) vm.extractIngredients(meal) else reloadConfirmationVisible = true }, enabled = recipeUrl != null, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Laden") }
+                }
+                Button({ groceryReviewVisible = true }, enabled = meal.ingredients.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.ShoppingCart, null); Spacer(Modifier.width(6.dp)); Text("Zum Einkauf")
+                }
             }
         }
         item {
@@ -174,7 +203,127 @@ internal fun MealDetailScreen(
         }
     } }
     galleryImageUrl?.let { imageUrl -> MealImageGallery(meal, imageUrl) { galleryImageUrl = null } }
+    if (ingredientEditorVisible) IngredientEditorDialog(meal, { ingredientEditorVisible = false }) { updated ->
+        vm.updateMeal(updated) { if (it) ingredientEditorVisible = false }
+    }
+    if (groceryReviewVisible) GroceryReviewDialog(meal, { groceryReviewVisible = false }) { selections ->
+        groceryVm.addRecipeIngredients(selections) { if (it) groceryReviewVisible = false }
+    }
+    if (reloadConfirmationVisible) AlertDialog(
+        onDismissRequest = { reloadConfirmationVisible = false },
+        title = { Text("Zutaten ersetzen?") },
+        text = { Text("Die gespeicherten Zutaten und deine Änderungen werden durch die neu geladenen Angaben ersetzt.") },
+        confirmButton = { TextButton({ reloadConfirmationVisible = false; vm.extractIngredients(meal) }) { Text("Ersetzen") } },
+        dismissButton = { TextButton({ reloadConfirmationVisible = false }) { Text("Abbrechen") } },
+    )
 }
+
+@Composable
+private fun IngredientEditorDialog(meal: Mahlzeit, dismiss: () -> Unit, save: (Mahlzeit) -> Unit) {
+    var servings by remember(meal.id, meal.recipeServings) { mutableStateOf(meal.recipeServings?.toString().orEmpty()) }
+    var ingredients by remember(meal.id, meal.ingredients) { mutableStateOf(meal.ingredients) }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("Zutaten bearbeiten") },
+        text = {
+            Column(Modifier.heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(servings, { servings = it.filter(Char::isDigit) }, label = { Text("Personen") }, singleLine = true)
+                LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(ingredients, key = { it.id }) { ingredient ->
+                        IngredientEditRow(
+                            ingredient,
+                            change = { changed -> ingredients = ingredients.map { if (it.id == changed.id) changed else it } },
+                            delete = { ingredients = ingredients.filterNot { it.id == ingredient.id } },
+                        )
+                    }
+                }
+                TextButton({ ingredients = ingredients + RecipeIngredient(name = "") }) { Icon(Icons.Outlined.Add, null); Text("Zutat hinzufügen") }
+            }
+        },
+        confirmButton = {
+            TextButton({ save(meal.copy(recipeServings = servings.toIntOrNull(), ingredients = ingredients.filter { it.name.isNotBlank() })) }, enabled = servings.toIntOrNull()?.let { it > 0 } == true || ingredients.isEmpty()) { Text("Speichern") }
+        },
+        dismissButton = { TextButton(dismiss) { Text("Abbrechen") } },
+    )
+}
+
+@Composable
+private fun IngredientEditRow(ingredient: RecipeIngredient, change: (RecipeIngredient) -> Unit, delete: () -> Unit) {
+    var unitMenu by remember { mutableStateOf(false) }
+    var categoryMenu by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(ingredient.amount.orEmpty(), { change(ingredient.copy(amount = it.ifBlank { null })) }, label = { Text("Menge") }, modifier = Modifier.width(88.dp), singleLine = true)
+            OutlinedTextField(ingredient.name, { change(ingredient.copy(name = it)) }, label = { Text("Zutat") }, modifier = Modifier.weight(1f), singleLine = true)
+            IconButton(delete) { Icon(Icons.Outlined.Delete, "Löschen") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box {
+                OutlinedButton({ unitMenu = true }) { Text(ingredient.unitLabel()) }
+                DropdownMenu(unitMenu, { unitMenu = false }) { GroceryUnit.entries.forEach { unit ->
+                    DropdownMenuItem({ Text(unit.label) }, { change(ingredient.copy(unit = unit, customUnit = null)); unitMenu = false })
+                } }
+            }
+            Box {
+                OutlinedButton({ categoryMenu = true }) { Text(ingredient.category.label) }
+                DropdownMenu(categoryMenu, { categoryMenu = false }) { GroceryCategory.entries.forEach { category ->
+                    DropdownMenuItem({ Text(category.label) }, { change(ingredient.copy(category = category)); categoryMenu = false })
+                } }
+            }
+        }
+        if (ingredient.unit == GroceryUnit.CUSTOM) OutlinedTextField(
+            ingredient.customUnit.orEmpty(), { change(ingredient.copy(customUnit = it.ifBlank { null })) },
+            label = { Text("Eigene Einheit") }, singleLine = true,
+        )
+    }
+}
+
+@Composable
+private fun GroceryReviewDialog(meal: Mahlzeit, dismiss: () -> Unit, add: (List<RecipeGrocerySelection>) -> Unit) {
+    val baseServings = meal.recipeServings
+    var targetServings by remember(meal.id) { mutableStateOf(baseServings?.toString().orEmpty()) }
+    var selected by remember(meal.id) { mutableStateOf(meal.ingredients.map { it.id }.toSet()) }
+    var overrides by remember(meal.id, targetServings) { mutableStateOf(emptyMap<String, String>()) }
+    val factor = if (baseServings != null && baseServings > 0) targetServings.toBigDecimalOrNull()?.divide(baseServings.toBigDecimal(), 6, java.math.RoundingMode.HALF_UP) else null
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("Zum Einkauf hinzufügen") },
+        text = {
+            Column(Modifier.heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(targetServings, { targetServings = it.filter(Char::isDigit) }, label = { Text("Personen") }, singleLine = true, isError = factor == null)
+                if (baseServings == null) Text("Lege zuerst in 'Bearbeiten' fest, für wie viele Personen die Grundmengen gelten.", color = MaterialTheme.colorScheme.error)
+                LazyColumn(Modifier.weight(1f, fill = false)) { items(meal.ingredients, key = { it.id }) { ingredient ->
+                    val scaled = ingredient.amount?.decimalOrNull()?.let { amount -> factor?.let { amount.multiply(it).stripTrailingZeros().toPlainString() } }
+                    val shown = overrides[ingredient.id] ?: scaled.orEmpty()
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(ingredient.id in selected, { checked -> selected = if (checked) selected + ingredient.id else selected - ingredient.id })
+                        OutlinedTextField(shown, { value -> overrides = overrides + (ingredient.id to value) }, modifier = Modifier.width(82.dp), label = { Text(ingredient.unitLabel()) }, singleLine = true, enabled = ingredient.amount != null)
+                        Text(ingredient.name, Modifier.weight(1f).padding(start = 8.dp), maxLines = 2)
+                    }
+                } }
+            }
+        },
+        confirmButton = {
+            TextButton({ add(meal.ingredients.filter { it.id in selected }.mapNotNull { it.toGrocerySelection(overrides[it.id] ?: it.amount?.decimalOrNull()?.let { amount -> factor?.let(amount::multiply)?.stripTrailingZeros()?.toPlainString() }) }) }, enabled = factor != null && selected.isNotEmpty()) { Text("Hinzufügen") }
+        },
+        dismissButton = { TextButton(dismiss) { Text("Abbrechen") } },
+    )
+}
+
+private fun RecipeIngredient.toGrocerySelection(value: String?): RecipeGrocerySelection? {
+    val numeric = value?.replace(',', '.')?.toDoubleOrNull()
+    if (amount != null && (numeric == null || numeric <= 0)) return null
+    val multiplier = when (unit) { GroceryUnit.KG, GroceryUnit.L -> 1000.0; GroceryUnit.DL -> 100.0; else -> 1.0 }
+    val key = name.trim().lowercase(Locale.GERMAN).replace(Regex("[^a-z0-9äöüéèà]+"), "-").trim('-')
+    return RecipeGrocerySelection(
+        GrocerySuggestion(GroceryProductRef(GrocerySource.RECIPE, "recipe:$key", name.trim()), category),
+        (numeric ?: 0.0) * multiplier, unit, customUnit, amount != null,
+    )
+}
+
+private fun RecipeIngredient.unitLabel() = if (unit == GroceryUnit.CUSTOM) customUnit ?: "Einheit" else unit.label
+private fun RecipeIngredient.displayAmount() = amount?.let { "$it ${unitLabel()}" } ?: (customUnit ?: "nach Bedarf")
+private fun String.decimalOrNull() = replace(',', '.').toBigDecimalOrNull()
 
 @Composable
 private fun MealStat(label: String, value: String, accent: Color = MaterialTheme.colorScheme.primary, modifier: Modifier = Modifier) = Surface(

@@ -23,6 +23,11 @@ import java.util.UUID
 
 @Serializable data class MahlzeitBild(val id: String = UUID.randomUUID().toString(), val url: String)
 @Serializable data class MahlzeitBewertung(val werte: List<Double>)
+@Serializable data class RecipeIngredient(
+    val id: String = UUID.randomUUID().toString(), val name: String, val amount: String? = null,
+    val unit: GroceryUnit = GroceryUnit.PIECE, val customUnit: String? = null,
+    val category: GroceryCategory = GroceryCategory.OTHER, val note: String? = null,
+)
 @Serializable data class AuswaertsEintrag(
     val id: String = UUID.randomUUID().toString(), val datum: String, val notiz: String? = null,
 )
@@ -36,6 +41,8 @@ import java.util.UUID
     val istIdee: Boolean = false,
     val eintraege: List<MahlzeitEintrag> = emptyList(),
     val notiz: String? = null,
+    val recipeServings: Int? = null,
+    val ingredients: List<RecipeIngredient> = emptyList(),
 )
 
 fun main(args: Array<String>) {
@@ -53,6 +60,7 @@ fun Application.module(
     databasePath: String = System.getenv("DATABASE_URL") ?: "mampfi.db",
     uploadDirectory: File = File(System.getenv("UPLOAD_DIR") ?: "uploads"),
     groceryCatalog: GroceryCatalogProvider? = null,
+    recipeExtractor: RecipeExtractor = FoobyRecipeExtractor(),
 ) {
     val uploads = uploadDirectory.apply { mkdirs() }
     val repository = MealRepository(databasePath)
@@ -67,6 +75,15 @@ fun Application.module(
     } }
     routing {
         staticFiles("/uploads", uploads)
+        post("/api/rezepte/extrahieren") {
+            val request = call.receive<RecipeExtractRequest>()
+            runCatching { recipeExtractor.extract(request.url) }
+                .onSuccess { call.respond(it) }
+                .onFailure { error ->
+                    val status = if (error is IllegalArgumentException) HttpStatusCode.BadRequest else HttpStatusCode.UnprocessableEntity
+                    call.respond(status, mapOf("fehler" to (error.message ?: "Zutaten konnten nicht geladen werden")))
+                }
+        }
         route("/api/einkauf") {
             post("/sync") {
                 call.respond(groceryRepository.sync(call.receive<GrocerySyncRequest>()))

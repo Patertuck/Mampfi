@@ -128,22 +128,30 @@ class MealApiTest {
     }
 
     @Test
-    fun `fresh v5 schema is initialized and can be reopened`() {
+    fun `fresh v7 schema is initialized and can be reopened`() {
         val dataDirectory = createTempDirectory("mampfi-schema-test-").toFile()
         val database = File(dataDirectory, "mampfi.db")
         val repository = MealRepository(database.path)
-        repository.insert(Mahlzeit(id = "mac", name = "Mac and cheese", eintraege = listOf(MahlzeitEintrag(datum = "2026-03-03")), notiz = "Extra crispy"))
+        repository.insert(Mahlzeit(
+            id = "mac", name = "Mac and cheese", eintraege = listOf(MahlzeitEintrag(datum = "2026-03-03")),
+            notiz = "Extra crispy", recipeServings = 2,
+            ingredients = listOf(RecipeIngredient(name = "Pasta", amount = "200", unit = GroceryUnit.G)),
+        ))
 
         val reopened = MealRepository(database.path)
         assertEquals("Mac and cheese", reopened.find("mac")?.name)
         assertEquals("Extra crispy", reopened.find("mac")?.notiz)
+        assertEquals(2, reopened.find("mac")?.recipeServings)
+        assertEquals("Pasta", reopened.find("mac")?.ingredients?.single()?.name)
         DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
             connection.createStatement().use { statement ->
-                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(5, result.getInt(1)) }
+                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(7, result.getInt(1)) }
                 statement.executeQuery("PRAGMA table_info(mahlzeiten)").use { rows ->
                     val columns = buildSet { while (rows.next()) add(rows.getString("name")) }
                     assertTrue("ist_idee" in columns)
                     assertTrue("notiz" in columns)
+                    assertTrue("ingredients" in columns)
+                    assertTrue("recipe_servings" in columns)
                 }
                 statement.executeQuery("SELECT name FROM sqlite_master WHERE type = 'table'").use { rows ->
                     val tables = buildSet { while (rows.next()) add(rows.getString("name")) }
@@ -169,7 +177,7 @@ class MealApiTest {
         assertFalse(repository.find("pasta")!!.istIdee)
         DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
             connection.createStatement().use { statement ->
-                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(5, result.getInt(1)) }
+                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(7, result.getInt(1)) }
             }
         }
     }
