@@ -3,6 +3,7 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application android:name=".MampfiApplication" android:allowBackup="false" android:icon="@mipmap/ic_launcher" android:label="Mampfi" android:roundIcon="@mipmap/ic_launcher_round" android:theme="@style/Theme.Mampfi" android:usesCleartextTraffic="false">
+        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode_ui" />
         <activity android:name=".MainActivity" android:exported="true" android:theme="@style/Theme.Mampfi.Starting">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

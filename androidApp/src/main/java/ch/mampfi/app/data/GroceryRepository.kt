@@ -8,6 +8,12 @@ import kotlinx.serialization.json.Json
 import java.time.Instant
 import java.util.UUID
 
+sealed interface GroceryBarcodeResult {
+    data class Found(val suggestion: GrocerySuggestion) : GroceryBarcodeResult
+    data object NotFound : GroceryBarcodeResult
+    data object Unavailable : GroceryBarcodeResult
+}
+
 class GroceryRepository(
     private val api: MealApi,
     private val dao: GroceryDao,
@@ -53,6 +59,15 @@ class GroceryRepository(
         val remote = runCatching { api.searchGroceries(GrocerySearchRequest(trimmed)) }.getOrDefault(emptyList())
         return (local + remote).distinctBy { it.product.stableKey }
     }
+
+    suspend fun lookupBarcode(barcode: String): GroceryBarcodeResult = runCatching {
+        val response = api.groceryByBarcode(barcode)
+        when {
+            response.isSuccessful -> response.body()?.let(GroceryBarcodeResult::Found) ?: GroceryBarcodeResult.NotFound
+            response.code() == 404 -> GroceryBarcodeResult.NotFound
+            else -> GroceryBarcodeResult.Unavailable
+        }
+    }.getOrDefault(GroceryBarcodeResult.Unavailable)
 
     suspend fun synchronize(): Result<List<String>> = syncMutex.withLock {
         runCatching {

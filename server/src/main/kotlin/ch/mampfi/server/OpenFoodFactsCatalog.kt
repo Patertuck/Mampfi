@@ -11,10 +11,18 @@ import java.util.concurrent.ConcurrentHashMap
 
 interface GroceryCatalogProvider {
     suspend fun search(query: String): List<GrocerySuggestion>
+    suspend fun lookupBarcode(barcode: String): GroceryBarcodeLookup
+}
+
+sealed interface GroceryBarcodeLookup {
+    data class Found(val suggestion: GrocerySuggestion) : GroceryBarcodeLookup
+    data object NotFound : GroceryBarcodeLookup
+    data object Unavailable : GroceryBarcodeLookup
 }
 
 class OpenFoodFactsCatalog(
     private val endpoint: String = "https://search.openfoodfacts.org/search",
+    private val productEndpoint: String = "https://world.openfoodfacts.org/api/v3/product",
     private val client: HttpClient = HttpClient(CIO),
     private val reportError: (Throwable) -> Unit = {},
 ) : GroceryCatalogProvider {
@@ -52,6 +60,27 @@ class OpenFoodFactsCatalog(
         }
     }
 
+    override suspend fun lookupBarcode(barcode: String): GroceryBarcodeLookup = try {
+        val response = client.get("$productEndpoint/$barcode") {
+            userAgent("Mampfi/1.0 (private grocery planner; Open Food Facts integration)")
+            url {
+                parameters.append("lc", "de")
+                parameters.append("cc", "ch")
+                parameters.append("fields", "code,product_name,product_name_de,product_name_fr,product_name_it,brands,quantity,image_front_url,categories_tags")
+            }
+        }
+        when {
+            response.status == HttpStatusCode.NotFound -> GroceryBarcodeLookup.NotFound
+            !response.status.isSuccess() -> GroceryBarcodeLookup.Unavailable
+            else -> parseProductResponse(response.bodyAsText())
+                ?.let(GroceryBarcodeLookup::Found)
+                ?: GroceryBarcodeLookup.NotFound
+        }
+    } catch (error: Throwable) {
+        reportError(error)
+        GroceryBarcodeLookup.Unavailable
+    }
+
     internal fun parse(body: String): List<GrocerySuggestion> {
         val root = json.parseToJsonElement(body).jsonObject
         val hitValue = root["hits"]
@@ -63,23 +92,33 @@ class OpenFoodFactsCatalog(
         return hits.mapNotNull { hit ->
             val wrapper = hit.jsonObject
             val source = (wrapper["_source"] ?: hit).jsonObject
-            val code = source.string("code") ?: return@mapNotNull null
-            val name = sequenceOf("product_name_de", "product_name", "product_name_fr", "product_name_it")
-                .mapNotNull { key -> source.string(key) }.firstOrNull { it.isNotBlank() } ?: return@mapNotNull null
-            val categories = source["categories_tags"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
-            GrocerySuggestion(
-                GroceryProductRef(
-                    source = GrocerySource.OPEN_FOOD_FACTS,
-                    stableKey = "off:$code",
-                    name = name,
-                    barcode = code,
-                    brand = source.string("brands"),
-                    packageSize = source.string("quantity"),
-                    imageUrl = source.string("image_front_url"),
-                ),
-                mapCategory(categories),
-            )
+            parseProduct(source)
         }.distinctBy { it.product.stableKey }
+    }
+
+    internal fun parseProductResponse(body: String): GrocerySuggestion? {
+        val root = json.parseToJsonElement(body).jsonObject
+        val product = root["product"]?.jsonObject ?: root
+        return parseProduct(product)
+    }
+
+    private fun parseProduct(source: JsonObject): GrocerySuggestion? {
+        val code = source.string("code") ?: return null
+        val name = sequenceOf("product_name_de", "product_name", "product_name_fr", "product_name_it")
+            .mapNotNull { key -> source.string(key) }.firstOrNull { it.isNotBlank() } ?: return null
+        val categories = (source["categories_tags"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
+        return GrocerySuggestion(
+            GroceryProductRef(
+                source = GrocerySource.OPEN_FOOD_FACTS,
+                stableKey = "off:$code",
+                name = name,
+                barcode = code,
+                brand = source.string("brands"),
+                packageSize = source.string("quantity"),
+                imageUrl = source.string("image_front_url"),
+            ),
+            mapCategory(categories),
+        )
     }
 
     private fun mapCategory(tags: List<String>): GroceryCategory {

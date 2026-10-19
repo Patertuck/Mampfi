@@ -37,6 +37,10 @@ class GroceryViewModel(private val repository: GroceryRepository) : ViewModel() 
         }
     }
     fun clearSearch() { searchJob?.cancel(); _suggestions.value = emptyList() }
+    fun lookupBarcode(barcode: String, result: (GroceryBarcodeResult) -> Unit) = viewModelScope.launch {
+        result(repository.lookupBarcode(barcode))
+    }
+    fun showMessage(message: String) = viewModelScope.launch { _message.emit(message) }
     fun add(suggestion: GrocerySuggestion, baseQuantity: Long, unit: GroceryUnit) = launch("Hinzufügen fehlgeschlagen.") { repository.add(suggestion, baseQuantity, unit) }
     fun update(item: GroceryItem) = launch("Ändern fehlgeschlagen.") { repository.update(item) }
     fun complete(item: GroceryItem) = launch("Abhaken fehlgeschlagen.") { repository.complete(item) }

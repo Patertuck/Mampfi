@@ -84,6 +84,18 @@ fun Application.module(
                 }
                 call.respond(merged)
             }
+            get("/produkt/{barcode}") {
+                val barcode = call.parameters["barcode"].orEmpty()
+                if (!barcode.matches(Regex("\\d{6,14}"))) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("fehler" to "Ungültiger Barcode"))
+                    return@get
+                }
+                when (val result = catalog.lookupBarcode(barcode)) {
+                    is GroceryBarcodeLookup.Found -> call.respond(result.suggestion)
+                    GroceryBarcodeLookup.NotFound -> call.respond(HttpStatusCode.NotFound)
+                    GroceryBarcodeLookup.Unavailable -> call.respond(HttpStatusCode.ServiceUnavailable)
+                }
+            }
         }
         route("/api/auswaerts") {
             get { call.respond(repository.allAwayEntries()) }

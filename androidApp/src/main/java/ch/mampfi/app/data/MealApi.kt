@@ -2,9 +2,11 @@ package ch.mampfi.app.data
 
 import okhttp3.MultipartBody
 import retrofit2.http.*
+import retrofit2.Response
 
 interface MealApi {
     @POST("api/einkauf/suche") suspend fun searchGroceries(@Body request: GrocerySearchRequest): List<GrocerySuggestion>
+    @GET("api/einkauf/produkt/{barcode}") suspend fun groceryByBarcode(@Path("barcode") barcode: String): Response<GrocerySuggestion>
     @POST("api/einkauf/sync") suspend fun syncGroceries(@Body request: GrocerySyncRequest): GrocerySyncResponse
     @GET("api/auswaerts") suspend fun allAwayEntries(): List<AuswaertsEintrag>
     @POST("api/auswaerts") suspend fun createAwayEntry(@Body entry: AuswaertsEintrag): AuswaertsEintrag

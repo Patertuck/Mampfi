@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package ch.mampfi.app
 
+import android.app.Activity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,8 +17,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
 import ch.mampfi.app.data.*
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
@@ -36,10 +43,39 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
     var query by rememberSaveable { mutableStateOf("") }
     var historyVisible by rememberSaveable { mutableStateOf(false) }
     var draft by remember { mutableStateOf<GrocerySuggestion?>(null) }
+    var unknownBarcode by rememberSaveable { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<GroceryItem?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
+    val activity = LocalContext.current as Activity
+    val scanner = remember(activity) {
+        val options = GmsBarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_EAN_8, Barcode.FORMAT_EAN_13, Barcode.FORMAT_UPC_A, Barcode.FORMAT_UPC_E)
+            .enableAutoZoom()
+            .build()
+        GmsBarcodeScanning.getClient(activity, options)
+    }
+    val scanBarcode: () -> Unit = {
+        scanner.startScan()
+            .addOnSuccessListener { scanned ->
+                val barcode = scanned.rawValue?.filter(Char::isDigit).orEmpty()
+                if (barcode.isBlank()) vm.showMessage("Der Barcode konnte nicht gelesen werden.")
+                else vm.lookupBarcode(barcode) { result ->
+                    when (result) {
+                        is GroceryBarcodeResult.Found -> draft = result.suggestion
+                        GroceryBarcodeResult.NotFound -> unknownBarcode = barcode
+                        GroceryBarcodeResult.Unavailable -> vm.showMessage("Produktdaten sind gerade nicht erreichbar.")
+                    }
+                }
+            }
+            .addOnFailureListener { error ->
+                if ((error as? ApiException)?.statusCode != CommonStatusCodes.CANCELED) {
+                    vm.showMessage("Scanner konnte nicht gestartet werden.")
+                }
+            }
+        Unit
+    }
 
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }
     Box(Modifier.fillMaxSize()) {
@@ -70,7 +106,12 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Was brauchst du?") },
                         leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                        trailingIcon = if (query.isNotEmpty()) {{ IconButton({ query = ""; vm.clearSearch() }) { Icon(Icons.Outlined.Close, "Leeren") } }} else null,
+                        trailingIcon = {
+                            Row {
+                                if (query.isNotEmpty()) IconButton({ query = ""; vm.clearSearch() }) { Icon(Icons.Outlined.Close, "Leeren") }
+                                IconButton(onClick = scanBarcode) { Icon(Icons.Outlined.QrCodeScanner, "Barcode scannen") }
+                            }
+                        },
                         singleLine = true,
                     )
                 }
@@ -114,6 +155,24 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(12.dp))
     }
 
+    unknownBarcode?.let { barcode ->
+        ManualBarcodeDialog(
+            barcode = barcode,
+            dismiss = { unknownBarcode = null },
+        ) { name ->
+            draft = GrocerySuggestion(
+                GroceryProductRef(
+                    source = GrocerySource.MANUAL,
+                    stableKey = "manual-barcode:$barcode",
+                    name = name,
+                    barcode = barcode,
+                ),
+                GroceryCategory.OTHER,
+            )
+            unknownBarcode = null
+        }
+    }
+
     draft?.let { suggestion ->
         GroceryAmountDialog(
             title = suggestion.product.name,
@@ -142,6 +201,27 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
             editing = null
         }
     }
+}
+
+@Composable private fun ManualBarcodeDialog(barcode: String, dismiss: () -> Unit, confirm: (String) -> Unit) {
+    var name by remember(barcode) { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("Produkt nicht gefunden") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Barcode $barcode ist noch nicht in Open Food Facts. Gib dem Produkt einen Namen.")
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Produktname") },
+                    singleLine = true,
+                )
+            }
+        },
+        confirmButton = { TextButton({ confirm(name.trim()) }, enabled = name.isNotBlank()) { Text("Weiter") } },
+        dismissButton = { TextButton(dismiss) { Text("Abbrechen") } },
+    )
 }
 
 @Composable private fun SuggestionRow(suggestion: GrocerySuggestion, manual: Boolean, select: (GrocerySuggestion) -> Unit) {
