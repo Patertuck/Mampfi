@@ -4,6 +4,8 @@ import okhttp3.MultipartBody
 import retrofit2.http.*
 
 interface MealApi {
+    @POST("api/einkauf/suche") suspend fun searchGroceries(@Body request: GrocerySearchRequest): List<GrocerySuggestion>
+    @POST("api/einkauf/sync") suspend fun syncGroceries(@Body request: GrocerySyncRequest): GrocerySyncResponse
     @GET("api/auswaerts") suspend fun allAwayEntries(): List<AuswaertsEintrag>
     @POST("api/auswaerts") suspend fun createAwayEntry(@Body entry: AuswaertsEintrag): AuswaertsEintrag
     @PUT("api/auswaerts/{id}") suspend fun updateAwayEntry(@Path("id") id: String, @Body entry: AuswaertsEintrag): AuswaertsEintrag

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,6 +30,7 @@ import java.time.LocalDate
 @Composable
 internal fun MampfiApp(
     vm: MealViewModel,
+    groceryVm: GroceryViewModel,
     endpointStore: EndpointSettingsStore,
     themeMode: ThemeMode = ThemeMode.DARK,
     updateVm: UpdateViewModel = viewModel(),
@@ -41,7 +43,7 @@ internal fun MampfiApp(
     val updateState by updateVm.state.collectAsState()
     var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
     val currentRoute = nav.currentBackStackEntryAsState().value?.destination?.route
-    val topLevelRoutes = remember { setOf("kalender", "ideen", "uebersicht", "einstellungen") }
+    val topLevelRoutes = remember { setOf("kalender", "einkauf", "ideen", "uebersicht", "einstellungen") }
     val appSettings by endpointStore.settings.collectAsState(initial = EndpointSettings())
     val syncStatus by vm.syncStatus.collectAsState()
     var sharedMealName by rememberSaveable { mutableStateOf("") }
@@ -49,16 +51,17 @@ internal fun MampfiApp(
     DisposableEffect(lifecycleOwner, vm) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> { vm.startForegroundRefresh(); updateVm.onResume() }
-                Lifecycle.Event.ON_PAUSE -> vm.stopForegroundRefresh()
+                Lifecycle.Event.ON_RESUME -> { vm.startForegroundRefresh(); groceryVm.startSync(); updateVm.onResume() }
+                Lifecycle.Event.ON_PAUSE -> { vm.stopForegroundRefresh(); groceryVm.stopSync() }
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) vm.startForegroundRefresh()
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) { vm.startForegroundRefresh(); groceryVm.startSync() }
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             vm.stopForegroundRefresh()
+            groceryVm.stopSync()
         }
     }
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }
@@ -93,6 +96,7 @@ internal fun MampfiApp(
             if (currentRoute in topLevelRoutes) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 8.dp) {
                 listOf(
                     Triple("kalender", "Kalender", Icons.Outlined.CalendarMonth),
+                    Triple("einkauf", "Einkauf", Icons.Outlined.ShoppingCart),
                     Triple("ideen", "Ideen", Icons.Outlined.Lightbulb),
                     Triple("uebersicht", "Übersicht", Icons.Outlined.ViewList),
                     Triple("einstellungen", "Einstellungen", Icons.Outlined.Settings),
@@ -122,6 +126,7 @@ internal fun MampfiApp(
                 isRefreshing = syncStatus.isRefreshing,
                 refresh = vm::refresh,
             ) }
+            composable("einkauf") { GroceryScreen(groceryVm) }
             composable("ideen") { IdeasScreen(
                 ideas = vm.meals.collectAsState().value.filter { it.istIdee },
                 add = { nav.navigate("idee") },

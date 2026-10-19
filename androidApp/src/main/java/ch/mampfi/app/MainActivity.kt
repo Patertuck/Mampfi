@@ -40,6 +40,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import ch.mampfi.app.data.MealApi
 import ch.mampfi.app.data.MealDatabase
 import ch.mampfi.app.data.MealRepository
+import ch.mampfi.app.data.GroceryRepository
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -53,6 +54,13 @@ class MainActivity : ComponentActivity() {
             .addMigrations(object : Migration(2, 3) {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL("CREATE TABLE IF NOT EXISTS `auswaerts_eintraege` (`id` TEXT NOT NULL, `datum` TEXT NOT NULL, `notiz` TEXT, PRIMARY KEY(`id`))")
+                }
+            }, object : Migration(3, 4) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `grocery_items` (`id` TEXT NOT NULL, `json` TEXT NOT NULL, `revision` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `grocery_mutations` (`id` TEXT NOT NULL, `json` TEXT NOT NULL, `createdAt` TEXT NOT NULL, PRIMARY KEY(`id`))")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `grocery_suggestions` (`stableKey` TEXT NOT NULL, `name` TEXT NOT NULL, `json` TEXT NOT NULL, `lastUsedAt` TEXT NOT NULL, PRIMARY KEY(`stableKey`))")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `grocery_sync_state` (`id` INTEGER NOT NULL, `revision` INTEGER NOT NULL, PRIMARY KEY(`id`))")
                 }
             })
             .build()
@@ -114,8 +122,19 @@ class MainActivity : ComponentActivity() {
                         key = "${configuredSettings.serverBaseUrl}|${configuredSettings.accessClientId}|${configuredSettings.accessClientSecret.hashCode()}",
                         factory = MealViewModelFactory(MealRepository(api, db.meals(), db.awayEntries(), configuredSettings.serverBaseUrl)),
                     )
+                    val groceryDeviceId = remember {
+                        val preferences = getSharedPreferences("mampfi-grocery", MODE_PRIVATE)
+                        preferences.getString("device-id", null) ?: java.util.UUID.randomUUID().toString().also {
+                            preferences.edit().putString("device-id", it).apply()
+                        }
+                    }
+                    val groceryVm: GroceryViewModel = viewModel(
+                        key = "grocery|${configuredSettings.serverBaseUrl}|$groceryDeviceId",
+                        factory = GroceryViewModelFactory(GroceryRepository(api, db.groceries(), groceryDeviceId)),
+                    )
                     MampfiApp(
                         vm,
+                        groceryVm,
                         endpointStore = endpointStore,
                         themeMode = settings!!.themeMode,
                         pendingSharedMeal = pendingSharedMeal,

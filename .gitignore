@@ -12,6 +12,6 @@ mampfi.local.properties
 mampfi-image*.tar
 server/mampfi.db
 server/uploads/
-data/
+/data/
 *.hprof
 /server/backups
