@@ -105,7 +105,6 @@ internal fun MampfiApp(
                         selected = currentRoute == route,
                         onClick = { nav.navigate(route) { launchSingleTop = true; popUpTo("kalender") { saveState = true }; restoreState = true } },
                         icon = { Icon(icon, contentDescription = label) },
-                        label = { Text(label) },
                     )
                 }
             }
