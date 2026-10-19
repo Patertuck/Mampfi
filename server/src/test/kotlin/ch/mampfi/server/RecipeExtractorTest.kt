@@ -29,6 +29,19 @@ class RecipeExtractorTest {
         assertNull(result.ingredients.last().amount)
     }
 
+    @Test fun `parses numeric Fooby recipe yield as portions`() {
+        val html = """
+            <html><head><script type="application/ld+json">
+            {"@context":"https://schema.org","@type":"Recipe","name":"Döner Bowl","recipeYield":"4",
+             "recipeIngredient":["400 g Kartoffeln"]}
+            </script></head></html>
+        """.trimIndent()
+
+        val result = FoobyRecipeExtractor().parse(html)
+
+        assertEquals(4, result.recipeServings)
+    }
+
     @Test fun `extraction endpoint returns provider result`() = testApplication {
         val directory = createTempDirectory("recipe-extract-api").toFile()
         val expected = RecipeExtractResponse("FOOBY", "Pasta", 2, listOf(RecipeIngredient(name = "Pasta", amount = "200", unit = GroceryUnit.G)))

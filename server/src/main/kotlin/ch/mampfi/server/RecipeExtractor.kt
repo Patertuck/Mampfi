@@ -53,8 +53,7 @@ class FoobyRecipeExtractor(private val client: HttpClient = HttpClient(CIO) {
         return RecipeExtractResponse(
             source = "FOOBY",
             title = recipeJson?.get("name")?.jsonPrimitive?.contentOrNull ?: document.selectFirst("h1")?.text(),
-            recipeServings = yield?.takeIf { it.contains(Regex("Person|Portion", RegexOption.IGNORE_CASE)) }
-                ?.let { Regex("\\d+").find(it)?.value?.toIntOrNull() },
+            recipeServings = yield?.let(::servingsFromYield),
             ingredients = rawIngredients.mapNotNull(::parseIngredient),
         )
     }
@@ -126,5 +125,11 @@ class FoobyRecipeExtractor(private val client: HttpClient = HttpClient(CIO) {
         is JsonPrimitive -> value.contentOrNull
         is JsonArray -> value.firstOrNull()?.jsonPrimitive?.contentOrNull
         else -> null
+    }
+
+    private fun servingsFromYield(value: String): Int? {
+        val text = value.trim()
+        if (!text.matches(Regex("\\d+")) && !text.contains(Regex("Person|Portion", RegexOption.IGNORE_CASE))) return null
+        return Regex("\\d+").find(text)?.value?.toIntOrNull()?.takeIf { it > 0 }
     }
 }
