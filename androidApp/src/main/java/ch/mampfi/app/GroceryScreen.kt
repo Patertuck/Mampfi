@@ -145,41 +145,61 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
 }
 
 @Composable private fun SuggestionRow(suggestion: GrocerySuggestion, manual: Boolean, select: (GrocerySuggestion) -> Unit) {
-    ListItem(
+    GroceryProductRow(
+        product = suggestion.product,
         modifier = Modifier.fillMaxWidth().clickable { select(suggestion) },
-        headlineContent = { Text(if (manual) "„${suggestion.product.name}“ manuell hinzufügen" else suggestion.product.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = {
-            val detail = listOfNotNull(suggestion.product.brand, suggestion.product.packageSize, suggestion.category.label).joinToString(" · ")
-            if (detail.isNotBlank()) Text(detail, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        },
-        leadingContent = {
-            if (!manual && suggestion.product.imageUrl != null) AsyncImage(
-                model = suggestion.product.imageUrl,
-                contentDescription = null,
-                modifier = Modifier.size(44.dp),
-            ) else Icon(if (manual) Icons.Outlined.Add else Icons.Outlined.Restaurant, null)
-        },
+        headline = if (manual) "„${suggestion.product.name}“ manuell hinzufügen" else suggestion.product.name,
+        details = listOfNotNull(suggestion.product.brand, suggestion.product.packageSize, suggestion.category.label),
+        manual = manual,
     )
 }
 
 @Composable private fun GroceryRow(item: GroceryItem, complete: () -> Unit, edit: () -> Unit, delete: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth().clickable(onClick = complete)) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(false, onCheckedChange = { complete() })
-            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                Text(item.product.name, fontWeight = FontWeight.SemiBold)
-                Text(item.formattedQuantity(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Box {
-                IconButton({ menu = true }) { Icon(Icons.Outlined.MoreVert, "Aktionen") }
-                DropdownMenu(menu, { menu = false }) {
-                    DropdownMenuItem({ Text("Bearbeiten") }, { menu = false; edit() }, leadingIcon = { Icon(Icons.Outlined.Edit, null) })
-                    DropdownMenuItem({ Text("Löschen") }, { menu = false; delete() }, leadingIcon = { Icon(Icons.Outlined.Delete, null) })
+    GroceryProductRow(
+        product = item.product,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = complete),
+        headline = item.product.name,
+        details = listOfNotNull(item.product.brand, item.product.packageSize, item.formattedQuantity(), item.category.label),
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(false, onCheckedChange = { complete() })
+                Box {
+                    IconButton({ menu = true }) { Icon(Icons.Outlined.MoreVert, "Aktionen") }
+                    DropdownMenu(menu, { menu = false }) {
+                        DropdownMenuItem({ Text("Bearbeiten") }, { menu = false; edit() }, leadingIcon = { Icon(Icons.Outlined.Edit, null) })
+                        DropdownMenuItem({ Text("Löschen") }, { menu = false; delete() }, leadingIcon = { Icon(Icons.Outlined.Delete, null) })
+                    }
                 }
             }
-        }
-    }
+        },
+    )
+}
+
+@Composable private fun GroceryProductRow(
+    product: GroceryProductRef,
+    headline: String,
+    details: List<String>,
+    modifier: Modifier = Modifier,
+    manual: Boolean = false,
+    trailingContent: @Composable (() -> Unit)? = null,
+) {
+    ListItem(
+        modifier = modifier,
+        headlineContent = { Text(headline, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        supportingContent = {
+            val detail = details.filter { it.isNotBlank() }.joinToString(" · ")
+            if (detail.isNotBlank()) Text(detail, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        },
+        leadingContent = {
+            if (!manual && product.imageUrl != null) AsyncImage(
+                model = product.imageUrl,
+                contentDescription = null,
+                modifier = Modifier.size(44.dp),
+            ) else Icon(if (manual) Icons.Outlined.Add else Icons.Outlined.Restaurant, null)
+        },
+        trailingContent = trailingContent,
+    )
 }
 
 @Composable private fun HistoryRow(item: GroceryItem, restore: () -> Unit) {
