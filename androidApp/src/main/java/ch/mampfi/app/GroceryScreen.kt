@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -15,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
@@ -168,7 +170,7 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
 
     draft?.let { suggestion ->
         GroceryAmountDialog(
-            title = suggestion.product.name,
+            product = suggestion.product,
             initialCategory = suggestion.category,
             initialUnit = GroceryUnit.PIECE,
             initialQuantity = "1",
@@ -182,7 +184,7 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
     }
     editing?.let { item ->
         GroceryAmountDialog(
-            title = item.product.name,
+            product = item.product,
             initialCategory = item.category,
             initialUnit = item.preferredUnit,
             initialQuantity = quantityInput(item),
@@ -284,7 +286,7 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
 }
 
 @Composable private fun GroceryAmountDialog(
-    title: String,
+    product: GroceryProductRef,
     initialCategory: GroceryCategory,
     initialUnit: GroceryUnit,
     initialQuantity: String,
@@ -293,32 +295,82 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
     dismiss: () -> Unit,
     confirm: (Double, GroceryUnit, GroceryCategory) -> Unit,
 ) {
-    var amount by remember(title, initialQuantity) { mutableStateOf(initialQuantity) }
-    var unit by remember(title, initialUnit) { mutableStateOf(initialUnit) }
-    var category by remember(title, initialCategory) { mutableStateOf(initialCategory) }
+    var amount by remember(product.stableKey, initialQuantity) { mutableStateOf(initialQuantity) }
+    var unit by remember(product.stableKey, initialUnit) { mutableStateOf(initialUnit) }
+    var category by remember(product.stableKey, initialCategory) { mutableStateOf(initialCategory) }
     var unitMenu by remember { mutableStateOf(false) }
     var categoryMenu by remember { mutableStateOf(false) }
     val base = quantityToBase(amount, unit)
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text(title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(amount, { amount = it }, label = { Text("Menge") }, modifier = Modifier.weight(1f), singleLine = true, isError = amount.isNotBlank() && base == null)
-                    ExposedDropdownMenuBox(unitMenu, { unitMenu = it }, Modifier.width(120.dp)) {
-                        OutlinedTextField(unit.label, {}, readOnly = true, label = { Text("Einheit") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(unitMenu) }, modifier = Modifier.menuAnchor().fillMaxWidth())
-                        ExposedDropdownMenu(unitMenu, { unitMenu = false }) { allowedUnits.forEach { candidate -> DropdownMenuItem({ Text(candidate.label) }, { unit = candidate; unitMenu = false }) } }
+    MampfiDialog(
+        title = if (confirmLabel == "Speichern") "Artikel bearbeiten" else "Artikel hinzufügen",
+        subtitle = product.name,
+        icon = if (confirmLabel == "Speichern") Icons.Outlined.Edit else Icons.Outlined.AddShoppingCart,
+        dismiss = dismiss,
+        content = {
+            Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (product.imageUrl != null) AsyncImage(product.imageUrl, null, Modifier.size(52.dp))
+                    else Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
+                        Icon(Icons.Outlined.ShoppingBasket, null, Modifier.padding(12.dp).size(28.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(product.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        listOfNotNull(product.brand, product.packageSize).takeIf { it.isNotEmpty() }?.let {
+                            Text(it.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
-                ExposedDropdownMenuBox(categoryMenu, { categoryMenu = it }) {
-                    OutlinedTextField(category.label, {}, readOnly = true, label = { Text("Kategorie") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(categoryMenu) }, modifier = Modifier.menuAnchor().fillMaxWidth())
-                    ExposedDropdownMenu(categoryMenu, { categoryMenu = false }) { GroceryCategory.entries.forEach { candidate -> DropdownMenuItem({ Text(candidate.label) }, { category = candidate; categoryMenu = false }) } }
+            }
+            Text("Menge", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    amount,
+                    { amount = it },
+                    label = { Text("Anzahl oder Menge") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    isError = amount.isNotBlank() && base == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    supportingText = if (amount.isNotBlank() && base == null) {{ Text("Bitte eine positive Zahl eingeben") }} else null,
+                )
+                ExposedDropdownMenuBox(unitMenu, { unitMenu = it }, Modifier.width(122.dp)) {
+                    OutlinedTextField(
+                        unit.label, {}, readOnly = true, label = { Text("Einheit") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(unitMenu) },
+                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+                    )
+                    ExposedDropdownMenu(unitMenu, { unitMenu = false }) {
+                        allowedUnits.forEach { candidate -> DropdownMenuItem({ Text(candidate.label) }, { unit = candidate; unitMenu = false }) }
+                    }
+                }
+            }
+            Text("Sortierung", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            ExposedDropdownMenuBox(categoryMenu, { categoryMenu = it }) {
+                OutlinedTextField(
+                    category.label, {}, readOnly = true, label = { Text("Kategorie") },
+                    leadingIcon = { Icon(Icons.Outlined.Category, null) },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(categoryMenu) },
+                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+                )
+                ExposedDropdownMenu(categoryMenu, { categoryMenu = false }) {
+                    GroceryCategory.entries.forEach { candidate ->
+                        DropdownMenuItem(
+                            text = { Text(candidate.label) },
+                            onClick = { category = candidate; categoryMenu = false },
+                            trailingIcon = if (candidate == category) {{ Icon(Icons.Outlined.Check, null) }} else null,
+                        )
+                    }
                 }
             }
         },
-        confirmButton = { TextButton({ base?.let { confirm(it, unit, category) } }, enabled = base != null) { Text(confirmLabel) } },
-        dismissButton = { TextButton(dismiss) { Text("Abbrechen") } },
+        actions = {
+            TextButton(dismiss, Modifier.weight(1f)) { Text("Abbrechen") }
+            Button({ base?.let { confirm(it, unit, category) } }, enabled = base != null, modifier = Modifier.weight(1f)) {
+                Icon(if (confirmLabel == "Speichern") Icons.Outlined.Save else Icons.Outlined.Add, null)
+                Spacer(Modifier.width(6.dp))
+                Text(confirmLabel)
+            }
+        },
     )
 }
 

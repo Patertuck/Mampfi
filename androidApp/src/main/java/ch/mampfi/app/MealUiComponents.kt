@@ -25,6 +25,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -268,10 +269,27 @@ internal fun MampfiFilterDialog(
     content: @Composable ColumnScope.() -> Unit,
     actions: @Composable RowScope.() -> Unit,
 ) {
+    MampfiDialog(title = title, dismiss = dismiss, content = content, actions = actions)
+}
+
+@Composable
+internal fun MampfiDialog(
+    title: String,
+    dismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    subtitle: String? = null,
+    expanded: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+    actions: @Composable RowScope.() -> Unit,
+) {
     Dialog(onDismissRequest = dismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
             Surface(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp),
+                modifier = modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 520.dp)
+                    .then(if (expanded) Modifier.fillMaxHeight(0.9f) else Modifier.heightIn(max = 640.dp)),
                 color = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.onSurface,
                 shape = MaterialTheme.shapes.large,
@@ -279,7 +297,16 @@ internal fun MampfiFilterDialog(
             ) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        icon?.let {
+                            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = CircleShape) {
+                                Icon(it, null, Modifier.padding(9.dp).size(22.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
+                            Spacer(Modifier.width(12.dp))
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            subtitle?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        }
                         IconButton(onClick = dismiss) { Icon(Icons.Outlined.Close, contentDescription = "Schließen") }
                     }
                     content()
