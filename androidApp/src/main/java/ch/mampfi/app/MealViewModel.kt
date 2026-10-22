@@ -13,6 +13,7 @@ import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 import java.time.LocalDate
 import java.io.InputStream
+import java.net.URI
 
 data class PendingImageUpload(val filename: String, val openStream: () -> InputStream)
 
@@ -21,6 +22,13 @@ data class SyncStatus(
     val isOffline: Boolean = false,
     val lastSuccessfulRefresh: Instant? = null,
 )
+
+internal fun isSupportedRecipeLink(link: String): Boolean = runCatching {
+    val uri = URI(link)
+    uri.scheme.equals("https", ignoreCase = true) && uri.host?.lowercase() in setOf(
+        "fooby.ch", "www.fooby.ch", "share.kptncook.com", "mobile.kptncook.com",
+    )
+}.getOrDefault(false)
 
 internal fun SyncStatus.afterRefresh(success: Boolean, completedAt: Instant): SyncStatus = if (success) {
     copy(isRefreshing = false, isOffline = false, lastSuccessfulRefresh = completedAt)
@@ -102,7 +110,7 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
     }
     private suspend fun autoExtractIfEmpty(meal: Mahlzeit) {
         val link = meal.rezeptLink ?: return
-        if (meal.ingredients.isNotEmpty() || !link.contains("fooby.ch", ignoreCase = true)) return
+        if (meal.ingredients.isNotEmpty() || !isSupportedRecipeLink(link)) return
         repository.extractRecipe(link).onSuccess { extracted ->
             repository.updateMeal(meal.copy(recipeServings = extracted.recipeServings, ingredients = extracted.ingredients))
             refreshFromServer(showFailureMessage = false, showActivity = false)

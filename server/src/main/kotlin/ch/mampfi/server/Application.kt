@@ -60,7 +60,7 @@ fun Application.module(
     databasePath: String = System.getenv("DATABASE_URL") ?: "mampfi.db",
     uploadDirectory: File = File(System.getenv("UPLOAD_DIR") ?: "uploads"),
     groceryCatalog: GroceryCatalogProvider? = null,
-    recipeExtractor: RecipeExtractor = FoobyRecipeExtractor(),
+    recipeExtractor: RecipeExtractor = SupportedRecipeExtractor(),
 ) {
     val uploads = uploadDirectory.apply { mkdirs() }
     val repository = MealRepository(databasePath)

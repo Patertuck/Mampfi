@@ -19,6 +19,7 @@ dependencies {
     implementation("org.jsoup:jsoup:1.18.3")
     implementation("org.xerial:sqlite-jdbc:3.47.1.0")
     testImplementation(kotlin("test"))
+    testImplementation("io.ktor:ktor-client-mock-jvm:3.0.3")
     testImplementation("io.ktor:ktor-server-test-host-jvm:3.0.3")
 }
 
