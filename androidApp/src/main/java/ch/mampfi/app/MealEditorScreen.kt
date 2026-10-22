@@ -59,12 +59,17 @@ internal fun SharedMealEditScreen(vm: MealViewModel, mealId: String, done: () ->
     var link by remember(meal.id) { mutableStateOf(meal.rezeptLink.orEmpty()) }
     var note by remember(meal.id) { mutableStateOf(meal.notiz.orEmpty()) }
     var tags by remember(meal.id) { mutableStateOf(meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags()) }
+    var recipeServings by remember(meal.id) { mutableStateOf(meal.recipeServings) }
+    var ingredients by remember(meal.id) { mutableStateOf(meal.ingredients) }
+    var recipeSteps by remember(meal.id) { mutableStateOf(meal.recipeSteps) }
+    var manualRecipeEditorVisible by remember { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
     var validationRequested by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     val initialTags = remember(meal.id) { meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags() }
     val validation = validateMealForm(name)
-    val dirty = name != meal.name || link != meal.rezeptLink.orEmpty() || note != meal.notiz.orEmpty() || tags != initialTags
+    val dirty = name != meal.name || link != meal.rezeptLink.orEmpty() || note != meal.notiz.orEmpty() || tags != initialTags ||
+        recipeServings != meal.recipeServings || ingredients != meal.ingredients || recipeSteps != meal.recipeSteps
     fun requestBack() { if (dirty) confirmDiscard = true else done() }
     BackHandler(enabled = dirty) { confirmDiscard = true }
     Scaffold(
@@ -87,6 +92,9 @@ internal fun SharedMealEditScreen(vm: MealViewModel, mealId: String, done: () ->
                                 rezeptLink = link.trim().ifBlank { null },
                                 tags = tags.normalizedDietTags().map { it.name },
                                 notiz = note.trim().ifBlank { null },
+                                recipeServings = recipeServings,
+                                ingredients = ingredients,
+                                recipeSteps = recipeSteps,
                             ),
                         ) { success ->
                             saving = false
@@ -115,7 +123,16 @@ internal fun SharedMealEditScreen(vm: MealViewModel, mealId: String, done: () ->
                     isError = validationRequested && validation.nameError != null,
                     supportingText = if (validationRequested && validation.nameError != null) {{ Text(validation.nameError!!) }} else null,
                 )
-                RecipeLinkField(link, true) { link = it }
+                RecipeChoiceEditor(
+                    link = link,
+                    editingExistingMeal = true,
+                    recipeServings = recipeServings,
+                    ingredients = ingredients,
+                    steps = recipeSteps,
+                    updateLink = { link = it },
+                    editManualRecipe = { manualRecipeEditorVisible = true },
+                    clearManualRecipe = { recipeServings = null; ingredients = emptyList(); recipeSteps = emptyList() },
+                )
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
@@ -135,6 +152,16 @@ internal fun SharedMealEditScreen(vm: MealViewModel, mealId: String, done: () ->
             }
         }
     } }
+    if (manualRecipeEditorVisible) ManualRecipeEditorDialog(
+        meal.copy(name = name.trim(), rezeptLink = null, recipeServings = recipeServings, ingredients = ingredients, recipeSteps = recipeSteps),
+        { manualRecipeEditorVisible = false },
+    ) { updated ->
+        recipeServings = updated.recipeServings
+        ingredients = updated.ingredients
+        recipeSteps = updated.recipeSteps
+        link = ""
+        manualRecipeEditorVisible = false
+    }
     ConfirmDiscardChangesDialog(confirmDiscard, { confirmDiscard = false }, done)
 }
 
@@ -204,6 +231,10 @@ internal fun EditScreen(vm: MealViewModel, groceryVm: GroceryViewModel, date: Lo
     var name by remember(selectedMeal) { mutableStateOf(selectedMeal?.name ?: "") }; var link by remember(selectedMeal) { mutableStateOf(selectedMeal?.rezeptLink ?: "") }
     var note by remember(selectedMeal) { mutableStateOf(selectedMeal?.notiz.orEmpty()) }
     var tags by remember(selectedMeal) { mutableStateOf(selectedMeal?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet()) }
+    var recipeServings by remember(selectedMeal) { mutableStateOf(selectedMeal?.recipeServings) }
+    var ingredients by remember(selectedMeal) { mutableStateOf(selectedMeal?.ingredients.orEmpty()) }
+    var recipeSteps by remember(selectedMeal) { mutableStateOf(selectedMeal?.recipeSteps.orEmpty()) }
+    var manualRecipeEditorVisible by remember { mutableStateOf(false) }
     val existingRating = existingEntry?.bewertung
     var ratingOne by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(0)?.toString().orEmpty()) }
     var ratingTwo by remember(existingEntry) { mutableStateOf(existingRating?.werte?.getOrNull(1)?.toString().orEmpty()) }
@@ -223,6 +254,7 @@ internal fun EditScreen(vm: MealViewModel, groceryVm: GroceryViewModel, date: Lo
     val initialTags = remember(selectedMeal) { selectedMeal?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet() }
     val dirty = name != selectedMeal?.name.orEmpty() || link != selectedMeal?.rezeptLink.orEmpty() ||
         note != selectedMeal?.notiz.orEmpty() || tags != initialTags || selectedDate != date ||
+        recipeServings != selectedMeal?.recipeServings || ingredients != selectedMeal?.ingredients.orEmpty() || recipeSteps != selectedMeal?.recipeSteps.orEmpty() ||
         ratingOne != existingRating?.werte?.getOrNull(0)?.toString().orEmpty() ||
         ratingTwo != existingRating?.werte?.getOrNull(1)?.toString().orEmpty() || chosen != null || pendingImage != null
     fun requestBack() { if (dirty) confirmDiscard = true else done() }
@@ -239,7 +271,10 @@ internal fun EditScreen(vm: MealViewModel, groceryVm: GroceryViewModel, date: Lo
         validationRequested = true
         if (!validation.isValid) return
         val base = selectedMeal ?: chosen ?: Mahlzeit(name = name.trim())
-        val meal = base.copy(name = name.trim(), rezeptLink = link.trim().ifBlank { null }, tags = tags.normalizedDietTags().map { it.name }, notiz = note.trim().ifBlank { null })
+        val meal = base.copy(
+            name = name.trim(), rezeptLink = link.trim().ifBlank { null }, tags = tags.normalizedDietTags().map { it.name },
+            notiz = note.trim().ifBlank { null }, recipeServings = recipeServings, ingredients = ingredients, recipeSteps = recipeSteps,
+        )
         val rating = validation.ratings?.let(::MahlzeitBewertung)
         val occurrence = existingEntry?.copy(datum = selectedDate.toString(), bewertung = rating) ?: MahlzeitEintrag(datum = selectedDate.toString(), bewertung = rating)
         saving = true
@@ -271,8 +306,8 @@ internal fun EditScreen(vm: MealViewModel, groceryVm: GroceryViewModel, date: Lo
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) { Column(Modifier.padding(20.dp)) { Text(when { existingEntry != null -> "Eintrag bearbeiten"; selectedMeal?.istIdee == true -> "Mahlzeit planen"; else -> "Neues Essen" }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(selectedDate.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM yyyy", Locale.GERMAN)), color = MaterialTheme.colorScheme.onPrimaryContainer) } } }
-        item { FormSection("Mahlzeit") { OutlinedTextField(name, { value -> name = if ('\n' in value || '\r' in value) normalizePastedMealName(value) else value; expanded = name.isNotBlank() && existingEntry == null }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), isError = validationRequested && validation.nameError != null, supportingText = if (validationRequested && validation.nameError != null) {{ Text(validation.nameError!!) }} else null); if (expanded) meals.filter { it.name.contains(name, true) }.take(5).forEach { meal -> Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { chosen = meal; name = meal.name; link = meal.rezeptLink.orEmpty(); note = meal.notiz.orEmpty(); tags = meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags(); expanded = false }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { meal.letztesBild()?.let { AsyncImage(it, null, Modifier.size(42.dp).clip(MaterialTheme.shapes.small)) }; Column(Modifier.padding(start = 10.dp)) { Text(meal.name, fontWeight = FontWeight.Bold); Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "Noch nicht bewertet", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }; RecipeLinkField(link, selectedMeal != null || chosen != null) { link = it }; OutlinedTextField(note, { note = it }, label = { Text("Notiz (optional)") }, placeholder = { Text("z. B. Änderungen am Rezept") }, modifier = Modifier.fillMaxWidth(), minLines = 3, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)) } }
-        (selectedMeal ?: chosen)?.let { ingredientMeal -> item {
+        item { FormSection("Mahlzeit") { OutlinedTextField(name, { value -> name = if ('\n' in value || '\r' in value) normalizePastedMealName(value) else value; expanded = name.isNotBlank() && existingEntry == null }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), isError = validationRequested && validation.nameError != null, supportingText = if (validationRequested && validation.nameError != null) {{ Text(validation.nameError!!) }} else null); if (expanded) meals.filter { it.name.contains(name, true) }.take(5).forEach { meal -> Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { chosen = meal; name = meal.name; link = meal.rezeptLink.orEmpty(); note = meal.notiz.orEmpty(); tags = meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags(); recipeServings = meal.recipeServings; ingredients = meal.ingredients; recipeSteps = meal.recipeSteps; expanded = false }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { meal.letztesBild()?.let { AsyncImage(it, null, Modifier.size(42.dp).clip(MaterialTheme.shapes.small)) }; Column(Modifier.padding(start = 10.dp)) { Text(meal.name, fontWeight = FontWeight.Bold); Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "Noch nicht bewertet", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }; RecipeChoiceEditor(link, selectedMeal != null || chosen != null, recipeServings, ingredients, recipeSteps, { link = it }, { manualRecipeEditorVisible = true }, { recipeServings = null; ingredients = emptyList(); recipeSteps = emptyList() }); OutlinedTextField(note, { note = it }, label = { Text("Notiz (optional)") }, placeholder = { Text("z. B. Änderungen am Rezept") }, modifier = Modifier.fillMaxWidth(), minLines = 3, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)) } }
+        (selectedMeal ?: chosen)?.copy(rezeptLink = link.ifBlank { null }, recipeServings = recipeServings, ingredients = ingredients, recipeSteps = recipeSteps)?.takeIf { !it.hatManuellesRezept() }?.let { ingredientMeal -> item {
             FormSection("Zutaten") {
                 RecipeIngredientSummary(ingredientMeal)
                 OutlinedButton(
@@ -285,6 +320,7 @@ internal fun EditScreen(vm: MealViewModel, groceryVm: GroceryViewModel, date: Lo
                                     recipeServings = extracted.recipeServings,
                                     ingredients = extracted.ingredients,
                                 )
+                                if (extracted != null) { recipeServings = extracted.recipeServings; ingredients = extracted.ingredients }
                             }
                         } else reloadIngredientsConfirmationVisible = true
                     },
@@ -350,7 +386,7 @@ internal fun EditScreen(vm: MealViewModel, groceryVm: GroceryViewModel, date: Lo
         }
     }
     ConfirmDiscardChangesDialog(confirmDiscard, { confirmDiscard = false }, done)
-    val ingredientMeal = selectedMeal ?: chosen
+    val ingredientMeal = (selectedMeal ?: chosen)?.copy(rezeptLink = link.ifBlank { null }, recipeServings = recipeServings, ingredients = ingredients, recipeSteps = recipeSteps)
     if (groceryReviewVisible && ingredientMeal != null) GroceryReviewDialog(ingredientMeal, { groceryReviewVisible = false }) { selections ->
         groceryVm.addRecipeIngredients(selections) { success ->
             if (success) groceryReviewVisible = false
@@ -371,11 +407,24 @@ internal fun EditScreen(vm: MealViewModel, groceryVm: GroceryViewModel, date: Lo
                         recipeServings = extracted.recipeServings,
                         ingredients = extracted.ingredients,
                     )
+                    if (extracted != null) { recipeServings = extracted.recipeServings; ingredients = extracted.ingredients }
                 }
             }) { Text("Ersetzen") }
         },
         dismissButton = { TextButton({ reloadIngredientsConfirmationVisible = false }) { Text("Abbrechen") } },
     )
+    if (manualRecipeEditorVisible) ManualRecipeEditorDialog(
+        (selectedMeal ?: chosen ?: Mahlzeit(name = name.trim())).copy(
+            name = name.trim(), rezeptLink = null, recipeServings = recipeServings, ingredients = ingredients, recipeSteps = recipeSteps,
+        ),
+        { manualRecipeEditorVisible = false },
+    ) { updated ->
+        recipeServings = updated.recipeServings
+        ingredients = updated.ingredients
+        recipeSteps = updated.recipeSteps
+        link = ""
+        manualRecipeEditorVisible = false
+    }
 }
 
 @Composable

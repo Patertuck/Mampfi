@@ -12,6 +12,7 @@ class ModelsTest {
         val meal = Json { ignoreUnknownKeys = true }.decodeFromString<Mahlzeit>("""{"name":"Ramen"}""")
 
         assertEquals(null, meal.notiz)
+        assertTrue(meal.recipeSteps.isEmpty())
     }
 
     @Test

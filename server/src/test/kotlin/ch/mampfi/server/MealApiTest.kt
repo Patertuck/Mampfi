@@ -89,6 +89,43 @@ class MealApiTest {
             contentType(ContentType.Application.Json)
             setBody("""{"name":"Pasta","eintraege":[{"datum":"2026-09-01"},{"datum":"2026-09-02"}]}""")
         }.status)
+        assertEquals(HttpStatusCode.BadRequest, client.post("/api/mahlzeiten") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Pasta","rezeptLink":"https://example.test","recipeServings":2,"ingredients":[{"name":"Pasta"}],"recipeSteps":[{"text":"Kochen"}],"eintraege":[{"datum":"2026-09-01"}]}""")
+        }.status)
+        assertEquals(HttpStatusCode.BadRequest, client.post("/api/mahlzeiten") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Pasta","recipeSteps":[{"text":"Kochen"}],"eintraege":[{"datum":"2026-09-01"}]}""")
+        }.status)
+    }
+
+    @Test
+    fun `manual recipe steps persist and an older update does not erase them`() = testApplication {
+        val dataDirectory = createTempDirectory("mampfi-manual-recipe-test-").toFile()
+        application { module(File(dataDirectory, "mampfi.db").path, File(dataDirectory, "uploads")) }
+
+        val created = client.post("/api/mahlzeiten") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"id":"manual","name":"Pasta","recipeServings":2,"ingredients":[{"name":"Pasta","amount":"200","unit":"G"}],"recipeSteps":[{"id":"step-1","text":"  Pasta kochen  "}],"eintraege":[{"datum":"2026-09-01"}]}""")
+        }
+        assertEquals(HttpStatusCode.Created, created.status)
+        assertEquals("Pasta kochen", Json.decodeFromString<Mahlzeit>(created.bodyAsText()).recipeSteps.single().text)
+
+        val olderClientUpdate = client.put("/api/mahlzeiten/manual") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Pasta al dente","recipeServings":2,"ingredients":[{"name":"Pasta","amount":"200","unit":"G"}]}""")
+        }
+        assertEquals(HttpStatusCode.OK, olderClientUpdate.status)
+        val updated = Json.decodeFromString<Mahlzeit>(olderClientUpdate.bodyAsText())
+        assertEquals("Pasta al dente", updated.name)
+        assertEquals(listOf("Pasta kochen"), updated.recipeSteps.map { it.text })
+
+        val switchedToLink = client.put("/api/mahlzeiten/manual") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Pasta al dente","rezeptLink":"https://example.test/pasta","recipeServings":null,"ingredients":[],"recipeSteps":[]}""")
+        }
+        assertEquals(HttpStatusCode.OK, switchedToLink.status)
+        assertTrue(Json.decodeFromString<Mahlzeit>(switchedToLink.bodyAsText()).recipeSteps.isEmpty())
     }
 
     @Test
@@ -128,7 +165,7 @@ class MealApiTest {
     }
 
     @Test
-    fun `fresh v7 schema is initialized and can be reopened`() {
+    fun `fresh v8 schema is initialized and can be reopened`() {
         val dataDirectory = createTempDirectory("mampfi-schema-test-").toFile()
         val database = File(dataDirectory, "mampfi.db")
         val repository = MealRepository(database.path)
@@ -136,6 +173,7 @@ class MealApiTest {
             id = "mac", name = "Mac and cheese", eintraege = listOf(MahlzeitEintrag(datum = "2026-03-03")),
             notiz = "Extra crispy", recipeServings = 2,
             ingredients = listOf(RecipeIngredient(name = "Pasta", amount = "200", unit = GroceryUnit.G)),
+            recipeSteps = listOf(RecipeStep(text = "Pasta kochen")),
         ))
 
         val reopened = MealRepository(database.path)
@@ -143,15 +181,17 @@ class MealApiTest {
         assertEquals("Extra crispy", reopened.find("mac")?.notiz)
         assertEquals(2, reopened.find("mac")?.recipeServings)
         assertEquals("Pasta", reopened.find("mac")?.ingredients?.single()?.name)
+        assertEquals("Pasta kochen", reopened.find("mac")?.recipeSteps?.single()?.text)
         DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
             connection.createStatement().use { statement ->
-                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(7, result.getInt(1)) }
+                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(8, result.getInt(1)) }
                 statement.executeQuery("PRAGMA table_info(mahlzeiten)").use { rows ->
                     val columns = buildSet { while (rows.next()) add(rows.getString("name")) }
                     assertTrue("ist_idee" in columns)
                     assertTrue("notiz" in columns)
                     assertTrue("ingredients" in columns)
                     assertTrue("recipe_servings" in columns)
+                    assertTrue("recipe_steps" in columns)
                 }
                 statement.executeQuery("SELECT name FROM sqlite_master WHERE type = 'table'").use { rows ->
                     val tables = buildSet { while (rows.next()) add(rows.getString("name")) }
@@ -177,7 +217,30 @@ class MealApiTest {
         assertFalse(repository.find("pasta")!!.istIdee)
         DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
             connection.createStatement().use { statement ->
-                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(7, result.getInt(1)) }
+                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(8, result.getInt(1)) }
+            }
+        }
+    }
+
+    @Test
+    fun `v7 meals migrate with an empty recipe step list`() {
+        val dataDirectory = createTempDirectory("mampfi-v7-schema-test-").toFile()
+        val database = File(dataDirectory, "mampfi.db")
+        DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeUpdate("CREATE TABLE mahlzeiten (id TEXT PRIMARY KEY, name TEXT NOT NULL, rezept_link TEXT, tags TEXT NOT NULL, ist_idee INTEGER NOT NULL DEFAULT 0, notiz TEXT, recipe_servings INTEGER, ingredients TEXT NOT NULL DEFAULT '[]')")
+                statement.executeUpdate("INSERT INTO mahlzeiten VALUES ('pasta', 'Pasta', NULL, '[]', 0, NULL, 2, '[{\"name\":\"Pasta\"}]')")
+                statement.executeUpdate("PRAGMA user_version = 7")
+            }
+        }
+
+        val repository = MealRepository(database.path)
+
+        assertEquals("Pasta", repository.find("pasta")?.ingredients?.single()?.name)
+        assertTrue(repository.find("pasta")?.recipeSteps.orEmpty().isEmpty())
+        DriverManager.getConnection("jdbc:sqlite:${database.path}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("PRAGMA user_version").use { result -> assertTrue(result.next()); assertEquals(8, result.getInt(1)) }
             }
         }
     }

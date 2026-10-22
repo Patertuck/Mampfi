@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -154,9 +155,13 @@ private fun IdeaCard(idea: Mahlzeit, click: () -> Unit) = Card(
         if (labels.isNotEmpty()) Text(labels.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         idea.notiz?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(if (idea.hatManuellesRezept()) Icons.AutoMirrored.Outlined.MenuBook else Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(5.dp))
-            Text(if (idea.rezeptLink.isNullOrBlank()) "Kein Rezept-Link" else "Rezept-Link vorhanden", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                when { idea.hatManuellesRezept() -> "Manuelles Rezept"; idea.rezeptLink.isNullOrBlank() -> "Kein Rezept"; else -> "Rezept-Link vorhanden" },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -183,6 +188,10 @@ internal fun IdeaEditScreen(
     var tags by remember(selectedIdea) {
         mutableStateOf(selectedIdea?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet())
     }
+    var recipeServings by remember(selectedIdea) { mutableStateOf(selectedIdea?.recipeServings) }
+    var ingredients by remember(selectedIdea) { mutableStateOf(selectedIdea?.ingredients.orEmpty()) }
+    var recipeSteps by remember(selectedIdea) { mutableStateOf(selectedIdea?.recipeSteps.orEmpty()) }
+    var manualRecipeEditorVisible by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
     var validationRequested by remember { mutableStateOf(false) }
@@ -191,7 +200,8 @@ internal fun IdeaEditScreen(
         selectedIdea?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet()
     }
     val dirty = name != selectedIdea?.name.orEmpty() || link != selectedIdea?.rezeptLink.orEmpty() ||
-        note != selectedIdea?.notiz.orEmpty() || tags != initialTags
+        note != selectedIdea?.notiz.orEmpty() || tags != initialTags || recipeServings != selectedIdea?.recipeServings ||
+        ingredients != selectedIdea?.ingredients.orEmpty() || recipeSteps != selectedIdea?.recipeSteps.orEmpty()
     val validation = validateMealForm(name)
     fun requestBack() { if (dirty) confirmDiscard = true else done() }
     BackHandler(enabled = dirty) { confirmDiscard = true }
@@ -203,6 +213,9 @@ internal fun IdeaEditScreen(
             notiz = note.trim().ifBlank { null },
             tags = tags.normalizedDietTags().map { it.name },
             istIdee = true,
+            recipeServings = recipeServings,
+            ingredients = ingredients,
+            recipeSteps = recipeSteps,
         )
     }
     fun save(action: IdeaSaveAction) {
@@ -268,7 +281,16 @@ internal fun IdeaEditScreen(
                     isError = validationRequested && validation.nameError != null,
                     supportingText = if (validationRequested && validation.nameError != null) {{ Text(validation.nameError!!) }} else null,
                 )
-                RecipeLinkField(link, selectedIdea != null) { link = it }
+                RecipeChoiceEditor(
+                    link = link,
+                    editingExistingMeal = selectedIdea != null,
+                    recipeServings = recipeServings,
+                    ingredients = ingredients,
+                    steps = recipeSteps,
+                    updateLink = { link = it },
+                    editManualRecipe = { manualRecipeEditorVisible = true },
+                    clearManualRecipe = { recipeServings = null; ingredients = emptyList(); recipeSteps = emptyList() },
+                )
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
@@ -311,6 +333,18 @@ internal fun IdeaEditScreen(
         }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Entfernen") } },
         dismissButton = { TextButton({ confirmDelete = false }) { Text("Abbrechen") } },
     )
+    if (manualRecipeEditorVisible) ManualRecipeEditorDialog(
+        (selectedIdea ?: Mahlzeit(name = name.trim())).copy(
+            name = name.trim(), rezeptLink = null, recipeServings = recipeServings, ingredients = ingredients, recipeSteps = recipeSteps,
+        ),
+        { manualRecipeEditorVisible = false },
+    ) { updated ->
+        recipeServings = updated.recipeServings
+        ingredients = updated.ingredients
+        recipeSteps = updated.recipeSteps
+        link = ""
+        manualRecipeEditorVisible = false
+    }
     ConfirmDiscardChangesDialog(confirmDiscard, { confirmDiscard = false }, done)
 }
 

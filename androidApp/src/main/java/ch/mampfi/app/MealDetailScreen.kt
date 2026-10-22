@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Link
@@ -52,6 +53,7 @@ internal fun MealDetailScreen(
     val meal = vm.meals.collectAsState().value.find { it.id == mealId }
     var galleryImageUrl by remember { mutableStateOf<String?>(null) }
     var ingredientEditorVisible by remember { mutableStateOf(false) }
+    var manualRecipeEditorVisible by remember { mutableStateOf(false) }
     var groceryReviewVisible by remember { mutableStateOf(false) }
     var reloadConfirmationVisible by remember { mutableStateOf(false) }
     if (meal == null) {
@@ -100,10 +102,10 @@ internal fun MealDetailScreen(
                     shape = MaterialTheme.shapes.small,
                 ) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(if (meal.hatManuellesRezept()) Icons.AutoMirrored.Outlined.MenuBook else Icons.Outlined.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            meal.rezeptLink?.takeIf { it.isNotBlank() } ?: "Kein Rezept-Link",
+                            when { meal.hatManuellesRezept() -> "Manuelles Rezept"; meal.rezeptLink.isNullOrBlank() -> "Kein Rezept"; else -> meal.rezeptLink },
                             Modifier.weight(1f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -118,12 +120,36 @@ internal fun MealDetailScreen(
         item {
             FormSection("Zutaten") {
                 RecipeIngredientSummary(meal)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton({ ingredientEditorVisible = true }, Modifier.weight(1f)) { Icon(Icons.Outlined.Edit, null); Spacer(Modifier.width(6.dp)); Text("Bearbeiten") }
-                    OutlinedButton({ if (meal.ingredients.isEmpty()) vm.extractIngredients(meal) else reloadConfirmationVisible = true }, enabled = recipeUrl != null, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Laden") }
+                if (meal.hatManuellesRezept()) {
+                    OutlinedButton({ manualRecipeEditorVisible = true }, Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.Edit, null); Spacer(Modifier.width(6.dp)); Text("Manuelles Rezept bearbeiten")
+                    }
+                } else if (!meal.rezeptLink.isNullOrBlank() || meal.ingredients.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton({ ingredientEditorVisible = true }, Modifier.weight(1f)) { Icon(Icons.Outlined.Edit, null); Spacer(Modifier.width(6.dp)); Text("Bearbeiten") }
+                        OutlinedButton(
+                            { if (meal.ingredients.isEmpty()) vm.extractIngredients(meal) else reloadConfirmationVisible = true },
+                            enabled = recipeUrl != null,
+                            modifier = Modifier.weight(1f),
+                        ) { Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Laden") }
+                    }
+                } else {
+                    Text("Füge beim Bearbeiten einen Rezept-Link oder ein manuelles Rezept hinzu.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Button({ groceryReviewVisible = true }, enabled = meal.ingredients.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.ShoppingCart, null); Spacer(Modifier.width(6.dp)); Text("Zum Einkauf")
+                }
+            }
+        }
+        if (meal.hatManuellesRezept() && meal.recipeSteps.isNotEmpty()) item {
+            FormSection("Zubereitung") {
+                meal.recipeSteps.forEachIndexed { index, step ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
+                            Text("${index + 1}", Modifier.padding(horizontal = 9.dp, vertical = 5.dp), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                        Text(step.text, Modifier.weight(1f).padding(start = 10.dp, top = 4.dp))
+                    }
                 }
             }
         }
@@ -202,6 +228,9 @@ internal fun MealDetailScreen(
     if (ingredientEditorVisible) IngredientEditorDialog(meal, { ingredientEditorVisible = false }) { updated ->
         vm.updateMeal(updated) { if (it) ingredientEditorVisible = false }
     }
+    if (manualRecipeEditorVisible) ManualRecipeEditorDialog(meal, { manualRecipeEditorVisible = false }) { updated ->
+        vm.updateMeal(updated) { if (it) manualRecipeEditorVisible = false }
+    }
     if (groceryReviewVisible) GroceryReviewDialog(meal, { groceryReviewVisible = false }) { selections ->
         groceryVm.addRecipeIngredients(selections) { if (it) groceryReviewVisible = false }
     }
@@ -238,7 +267,7 @@ private fun IngredientEditorDialog(meal: Mahlzeit, dismiss: () -> Unit, save: (M
                 OutlinedTextField(servings, { servings = it.filter(Char::isDigit) }, label = { Text("Personen") }, singleLine = true)
                 LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(ingredients, key = { it.id }) { ingredient ->
-                        IngredientEditRow(
+                        RecipeIngredientEditRow(
                             ingredient,
                             change = { changed -> ingredients = ingredients.map { if (it.id == changed.id) changed else it } },
                             delete = { ingredients = ingredients.filterNot { it.id == ingredient.id } },
@@ -253,37 +282,6 @@ private fun IngredientEditorDialog(meal: Mahlzeit, dismiss: () -> Unit, save: (M
         },
         dismissButton = { TextButton(dismiss) { Text("Abbrechen") } },
     )
-}
-
-@Composable
-private fun IngredientEditRow(ingredient: RecipeIngredient, change: (RecipeIngredient) -> Unit, delete: () -> Unit) {
-    var unitMenu by remember { mutableStateOf(false) }
-    var categoryMenu by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedTextField(ingredient.amount.orEmpty(), { change(ingredient.copy(amount = it.ifBlank { null })) }, label = { Text("Menge") }, modifier = Modifier.width(88.dp), singleLine = true)
-            OutlinedTextField(ingredient.name, { change(ingredient.copy(name = it)) }, label = { Text("Zutat") }, modifier = Modifier.weight(1f), singleLine = true)
-            IconButton(delete) { Icon(Icons.Outlined.Delete, "Löschen") }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box {
-                OutlinedButton({ unitMenu = true }) { Text(ingredient.unitLabel()) }
-                DropdownMenu(unitMenu, { unitMenu = false }) { GroceryUnit.entries.forEach { unit ->
-                    DropdownMenuItem({ Text(unit.label) }, { change(ingredient.copy(unit = unit, customUnit = null)); unitMenu = false })
-                } }
-            }
-            Box {
-                OutlinedButton({ categoryMenu = true }) { Text(ingredient.category.label) }
-                DropdownMenu(categoryMenu, { categoryMenu = false }) { GroceryCategory.entries.forEach { category ->
-                    DropdownMenuItem({ Text(category.label) }, { change(ingredient.copy(category = category)); categoryMenu = false })
-                } }
-            }
-        }
-        if (ingredient.unit == GroceryUnit.CUSTOM) OutlinedTextField(
-            ingredient.customUnit.orEmpty(), { change(ingredient.copy(customUnit = it.ifBlank { null })) },
-            label = { Text("Eigene Einheit") }, singleLine = true,
-        )
-    }
 }
 
 @Composable
@@ -404,7 +402,6 @@ private fun RecipeIngredient.toGrocerySelection(value: String?): RecipeGrocerySe
     )
 }
 
-private fun RecipeIngredient.unitLabel() = if (unit == GroceryUnit.CUSTOM) customUnit ?: "Einheit" else unit.label
 private fun RecipeIngredient.displayAmount() = amount?.let { "$it ${unitLabel()}" } ?: (customUnit ?: "nach Bedarf")
 private fun String.decimalOrNull() = replace(',', '.').toBigDecimalOrNull()
 

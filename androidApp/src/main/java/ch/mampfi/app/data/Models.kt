@@ -16,6 +16,9 @@ enum class Tag(val label: String) { VEGETARISCH("Vegetarisch"), VEGAN("Vegan"), 
     val unit: GroceryUnit = GroceryUnit.PIECE, val customUnit: String? = null,
     val category: GroceryCategory = GroceryCategory.OTHER, val note: String? = null,
 )
+@Serializable data class RecipeStep(
+    val id: String = UUID.randomUUID().toString(), val text: String,
+)
 @Serializable data class RecipeExtractRequest(val url: String)
 @Serializable data class RecipeExtractResponse(
     val source: String, val title: String? = null, val recipeServings: Int? = null,
@@ -38,6 +41,7 @@ data class DatiertesMahlzeitBild(val url: String, val datum: String)
     val notiz: String? = null,
     val recipeServings: Int? = null,
     val ingredients: List<RecipeIngredient> = emptyList(),
+    val recipeSteps: List<RecipeStep> = emptyList(),
 ) {
     val termine get() = eintraege.map { it.datum }
     val bilder get() = eintraege.flatMap { entry -> entry.bilder.map { DatiertesMahlzeitBild(it.url, entry.datum) } }
@@ -50,6 +54,8 @@ data class DatiertesMahlzeitBild(val url: String, val datum: String)
         Tag.VEGETARISCH -> Tag.VEGETARISCH.name in tags || Tag.VEGAN.name in tags
         else -> tag.name in tags
     }
+    fun hatManuellesRezept() = rezeptLink.isNullOrBlank() &&
+        (recipeServings != null || ingredients.isNotEmpty() || recipeSteps.isNotEmpty())
 }
 
 internal fun Set<Tag>.normalizedDietTags() = if (Tag.VEGAN in this) this - Tag.VEGETARISCH else this

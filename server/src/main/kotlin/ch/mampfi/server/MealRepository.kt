@@ -25,11 +25,11 @@ class MealRepository(private val database: String) {
     }
 
     @Synchronized fun all(): List<Mahlzeit> = connection.prepareStatement(
-        "SELECT id, name, rezept_link, tags, ist_idee, notiz, recipe_servings, ingredients FROM mahlzeiten ORDER BY name COLLATE NOCASE",
+        "SELECT id, name, rezept_link, tags, ist_idee, notiz, recipe_servings, ingredients, recipe_steps FROM mahlzeiten ORDER BY name COLLATE NOCASE",
     ).use { statement -> statement.executeQuery().use { rows -> buildList { while (rows.next()) add(rows.meal()) } } }
 
     @Synchronized fun find(id: String): Mahlzeit? = connection.prepareStatement(
-        "SELECT id, name, rezept_link, tags, ist_idee, notiz, recipe_servings, ingredients FROM mahlzeiten WHERE id = ?",
+        "SELECT id, name, rezept_link, tags, ist_idee, notiz, recipe_servings, ingredients, recipe_steps FROM mahlzeiten WHERE id = ?",
     ).use { statement ->
         statement.setString(1, id)
         statement.executeQuery().use { rows -> if (rows.next()) rows.meal() else null }
@@ -66,7 +66,7 @@ class MealRepository(private val database: String) {
     ).use { statement -> statement.setString(1, id); statement.executeUpdate() > 0 }
 
     @Synchronized fun insert(meal: Mahlzeit) = transaction {
-        connection.prepareStatement("INSERT INTO mahlzeiten (id, name, rezept_link, tags, ist_idee, notiz, recipe_servings, ingredients) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").use { statement ->
+        connection.prepareStatement("INSERT INTO mahlzeiten (id, name, rezept_link, tags, ist_idee, notiz, recipe_servings, ingredients, recipe_steps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").use { statement ->
             bindMeal(statement, meal)
             statement.executeUpdate()
         }
@@ -74,7 +74,7 @@ class MealRepository(private val database: String) {
     }
 
     @Synchronized fun updateMeal(meal: Mahlzeit): Boolean = connection.prepareStatement(
-        "UPDATE mahlzeiten SET name = ?, rezept_link = ?, tags = ?, ist_idee = ?, notiz = ?, recipe_servings = ?, ingredients = ? WHERE id = ?",
+        "UPDATE mahlzeiten SET name = ?, rezept_link = ?, tags = ?, ist_idee = ?, notiz = ?, recipe_servings = ?, ingredients = ?, recipe_steps = ? WHERE id = ?",
     ).use { statement ->
         statement.setString(1, meal.name)
         statement.setString(2, meal.rezeptLink)
@@ -83,7 +83,8 @@ class MealRepository(private val database: String) {
         statement.setString(5, meal.notiz)
         meal.recipeServings?.let { statement.setInt(6, it) } ?: statement.setNull(6, java.sql.Types.INTEGER)
         statement.setString(7, json.encodeToString(meal.ingredients))
-        statement.setString(8, meal.id)
+        statement.setString(8, json.encodeToString(meal.recipeSteps))
+        statement.setString(9, meal.id)
         statement.executeUpdate() > 0
     }
 
@@ -160,6 +161,7 @@ class MealRepository(private val database: String) {
             eintraege = entries(mealId), notiz = getString("notiz"),
             recipeServings = getInt("recipe_servings").takeUnless { wasNull() },
             ingredients = json.decodeFromString(getString("ingredients") ?: "[]"),
+            recipeSteps = json.decodeFromString(getString("recipe_steps") ?: "[]"),
         )
     }
 
@@ -209,6 +211,7 @@ class MealRepository(private val database: String) {
         statement.setString(6, meal.notiz)
         meal.recipeServings?.let { statement.setInt(7, it) } ?: statement.setNull(7, java.sql.Types.INTEGER)
         statement.setString(8, json.encodeToString(meal.ingredients))
+        statement.setString(9, json.encodeToString(meal.recipeSteps))
     }
 
     private fun awayDateOccupied(date: String, excludingId: String? = null): Boolean = connection.prepareStatement(
@@ -236,13 +239,14 @@ class MealRepository(private val database: String) {
         if ("notiz" !in columns) connection.createStatement().use { it.executeUpdate("ALTER TABLE mahlzeiten ADD COLUMN notiz TEXT") }
         if ("recipe_servings" !in columns) connection.createStatement().use { it.executeUpdate("ALTER TABLE mahlzeiten ADD COLUMN recipe_servings INTEGER") }
         if ("ingredients" !in columns) connection.createStatement().use { it.executeUpdate("ALTER TABLE mahlzeiten ADD COLUMN ingredients TEXT NOT NULL DEFAULT '[]'") }
+        if ("recipe_steps" !in columns) connection.createStatement().use { it.executeUpdate("ALTER TABLE mahlzeiten ADD COLUMN recipe_steps TEXT NOT NULL DEFAULT '[]'") }
         createSchema()
         setSchemaVersion()
     }
 
     private fun createSchema() {
         connection.createStatement().use { statement ->
-            statement.executeUpdate("CREATE TABLE IF NOT EXISTS mahlzeiten (id TEXT PRIMARY KEY, name TEXT NOT NULL, rezept_link TEXT, tags TEXT NOT NULL, ist_idee INTEGER NOT NULL DEFAULT 0, notiz TEXT, recipe_servings INTEGER, ingredients TEXT NOT NULL DEFAULT '[]')")
+            statement.executeUpdate("CREATE TABLE IF NOT EXISTS mahlzeiten (id TEXT PRIMARY KEY, name TEXT NOT NULL, rezept_link TEXT, tags TEXT NOT NULL, ist_idee INTEGER NOT NULL DEFAULT 0, notiz TEXT, recipe_servings INTEGER, ingredients TEXT NOT NULL DEFAULT '[]', recipe_steps TEXT NOT NULL DEFAULT '[]')")
             statement.executeUpdate("CREATE TABLE IF NOT EXISTS mahlzeit_eintraege (id TEXT PRIMARY KEY, mahlzeit_id TEXT NOT NULL, datum TEXT NOT NULL, bewertung TEXT, FOREIGN KEY (mahlzeit_id) REFERENCES mahlzeiten(id) ON DELETE CASCADE, UNIQUE (mahlzeit_id, datum))")
             statement.executeUpdate("CREATE TABLE IF NOT EXISTS mahlzeit_bilder (id TEXT PRIMARY KEY, eintrag_id TEXT NOT NULL, url TEXT NOT NULL, FOREIGN KEY (eintrag_id) REFERENCES mahlzeit_eintraege(id) ON DELETE CASCADE)")
             statement.executeUpdate("CREATE TABLE IF NOT EXISTS auswaerts_eintraege (id TEXT PRIMARY KEY, datum TEXT NOT NULL UNIQUE, notiz TEXT)")
@@ -253,7 +257,7 @@ class MealRepository(private val database: String) {
         statement.executeQuery("PRAGMA table_info($table)").use { rows -> buildSet { while (rows.next()) add(rows.getString("name")) } }
     }
 
-    private fun setSchemaVersion() { connection.createStatement().use { it.execute("PRAGMA user_version = 7") } }
+    private fun setSchemaVersion() { connection.createStatement().use { it.execute("PRAGMA user_version = 8") } }
 
     private fun <T> transaction(block: () -> T): T {
         val previousAutoCommit = connection.autoCommit

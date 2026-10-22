@@ -17,6 +17,7 @@ import io.ktor.util.cio.writeChannel
 import io.ktor.utils.io.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import java.io.File
 import java.time.LocalDate
 import java.util.UUID
@@ -27,6 +28,9 @@ import java.util.UUID
     val id: String = UUID.randomUUID().toString(), val name: String, val amount: String? = null,
     val unit: GroceryUnit = GroceryUnit.PIECE, val customUnit: String? = null,
     val category: GroceryCategory = GroceryCategory.OTHER, val note: String? = null,
+)
+@Serializable data class RecipeStep(
+    val id: String = UUID.randomUUID().toString(), val text: String,
 )
 @Serializable data class AuswaertsEintrag(
     val id: String = UUID.randomUUID().toString(), val datum: String, val notiz: String? = null,
@@ -43,6 +47,7 @@ import java.util.UUID
     val notiz: String? = null,
     val recipeServings: Int? = null,
     val ingredients: List<RecipeIngredient> = emptyList(),
+    val recipeSteps: List<RecipeStep> = emptyList(),
 )
 
 fun main(args: Array<String>) {
@@ -67,7 +72,8 @@ fun Application.module(
     val groceryRepository = GroceryRepository(databasePath)
     val logger = environment.log
     val catalog = groceryCatalog ?: OpenFoodFactsCatalog(reportError = { logger.warn("Open Food Facts search failed", it) })
-    install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; encodeDefaults = true }) }
+    val wireJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    install(ContentNegotiation) { json(wireJson) }
     install(CORS) { anyHost(); allowMethod(HttpMethod.Delete); allowMethod(HttpMethod.Put); allowHeader(HttpHeaders.ContentType) }
     install(StatusPages) { exception<Throwable> { call, cause ->
         logger.error("Unerwarteter Fehler", cause)
@@ -147,7 +153,7 @@ fun Application.module(
             get { call.respond(repository.all()) }
             get("/{id}") { repository.find(call.parameters["id"]!!)?.let { call.respond(it) } ?: call.respond(HttpStatusCode.NotFound) }
             post {
-                val meal = call.receive<Mahlzeit>().normalized()
+                val meal = call.receiveMeal(wireJson).meal.normalized()
                 validateNewMeal(meal)?.let { call.respond(HttpStatusCode.BadRequest, it); return@post }
                 if (repository.find(meal.id) != null) call.respond(HttpStatusCode.Conflict) else try {
                     repository.insert(meal)
@@ -158,7 +164,12 @@ fun Application.module(
             }
             put("/{id}") {
                 val id = call.parameters["id"]!!
-                val meal = call.receive<Mahlzeit>().copy(id = id).normalized()
+                val received = call.receiveMeal(wireJson)
+                val existing = repository.find(id)
+                val meal = received.meal.copy(
+                    id = id,
+                    recipeSteps = if (received.includesRecipeSteps) received.meal.recipeSteps else existing?.recipeSteps.orEmpty(),
+                ).normalized()
                 validateShared(meal)?.let { call.respond(HttpStatusCode.BadRequest, it); return@put }
                 if (repository.updateMeal(meal)) call.respond(repository.find(id)!!) else call.respond(HttpStatusCode.NotFound)
             }
@@ -214,6 +225,10 @@ fun Application.module(
 private fun validateShared(meal: Mahlzeit): Map<String, String>? = when {
     meal.name.isBlank() -> mapOf("fehler" to "Name darf nicht leer sein")
     "VEGAN" in meal.tags && "VEGETARISCH" in meal.tags -> mapOf("fehler" to "Eine Mahlzeit kann nicht gleichzeitig vegan und vegetarisch sein")
+    !meal.rezeptLink.isNullOrBlank() && meal.recipeSteps.isNotEmpty() -> mapOf("fehler" to "Rezept-Link und manuelles Rezept können nicht gleichzeitig verwendet werden")
+    meal.recipeSteps.isNotEmpty() && (meal.recipeServings == null || meal.recipeServings <= 0) -> mapOf("fehler" to "Ein manuelles Rezept braucht eine gültige Personenzahl")
+    meal.recipeSteps.isNotEmpty() && meal.ingredients.isEmpty() -> mapOf("fehler" to "Ein manuelles Rezept braucht mindestens eine Zutat")
+    meal.recipeSteps.isNotEmpty() && meal.ingredients.any { it.name.isBlank() } -> mapOf("fehler" to "Zutaten dürfen nicht leer sein")
     else -> null
 }
 
@@ -234,7 +249,27 @@ private fun validateEntry(entry: MahlzeitEintrag): Map<String, String>? = when {
 
 private fun AuswaertsEintrag.normalized() = copy(notiz = notiz?.trim()?.ifBlank { null })
 
-private fun Mahlzeit.normalized() = copy(notiz = notiz?.trim()?.ifBlank { null })
+private fun Mahlzeit.normalized() = copy(
+    rezeptLink = rezeptLink?.trim()?.ifBlank { null },
+    notiz = notiz?.trim()?.ifBlank { null },
+    ingredients = ingredients.mapNotNull { ingredient ->
+        ingredient.copy(
+            name = ingredient.name.trim(),
+            amount = ingredient.amount?.trim()?.ifBlank { null },
+            customUnit = ingredient.customUnit?.trim()?.ifBlank { null },
+            note = ingredient.note?.trim()?.ifBlank { null },
+        ).takeIf { it.name.isNotBlank() }
+    },
+    recipeSteps = recipeSteps.mapNotNull { step -> step.copy(text = step.text.trim()).takeIf { it.text.isNotBlank() } },
+)
+
+private data class ReceivedMeal(val meal: Mahlzeit, val includesRecipeSteps: Boolean)
+
+private suspend fun ApplicationCall.receiveMeal(json: Json): ReceivedMeal {
+    val body = receiveText()
+    val objectValue = json.parseToJsonElement(body).jsonObject
+    return ReceivedMeal(json.decodeFromString(Mahlzeit.serializer(), body), "recipeSteps" in objectValue)
+}
 
 private fun validateAwayEntry(entry: AuswaertsEintrag): Map<String, String>? = when {
     runCatching { LocalDate.parse(entry.datum) }.isFailure -> mapOf("fehler" to "Ungültiges Datum")

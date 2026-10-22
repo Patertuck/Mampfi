@@ -112,7 +112,7 @@ class MainActivity : ComponentActivity() {
                             .baseUrl(configuredSettings.serverBaseUrl)
                             .client(authenticatedHttpClient(settings = { configuredSettings }))
                             .addConverterFactory(
-                                Json { ignoreUnknownKeys = true }
+                                Json { ignoreUnknownKeys = true; encodeDefaults = true }
                                     .asConverterFactory("application/json".toMediaType()),
                             )
                             .build()
