@@ -51,17 +51,16 @@ internal fun MampfiApp(
     DisposableEffect(lifecycleOwner, vm) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> { vm.startForegroundRefresh(); groceryVm.startSync(); updateVm.onResume() }
-                Lifecycle.Event.ON_PAUSE -> { vm.stopForegroundRefresh(); groceryVm.stopSync() }
+                Lifecycle.Event.ON_RESUME -> { vm.startForegroundRefresh(); updateVm.onResume() }
+                Lifecycle.Event.ON_PAUSE -> vm.stopForegroundRefresh()
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) { vm.startForegroundRefresh(); groceryVm.startSync() }
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) vm.startForegroundRefresh()
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             vm.stopForegroundRefresh()
-            groceryVm.stopSync()
         }
     }
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }

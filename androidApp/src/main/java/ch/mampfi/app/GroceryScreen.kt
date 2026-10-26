@@ -19,6 +19,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.compose.AsyncImage
 import ch.mampfi.app.data.*
 import com.google.android.gms.common.api.ApiException
@@ -49,6 +52,7 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val activity = LocalContext.current as Activity
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scanner = remember(activity) {
         val options = GmsBarcodeScannerOptions.Builder()
             .setBarcodeFormats(Barcode.FORMAT_EAN_8, Barcode.FORMAT_EAN_13, Barcode.FORMAT_UPC_A, Barcode.FORMAT_UPC_E)
@@ -77,6 +81,21 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
         Unit
     }
 
+    DisposableEffect(lifecycleOwner, vm) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> vm.startSync()
+                Lifecycle.Event.ON_PAUSE -> vm.stopSync()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) vm.startSync()
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            vm.stopSync()
+        }
+    }
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(

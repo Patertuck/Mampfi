@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+internal const val GROCERY_SYNC_INTERVAL_MILLIS = 2_000L
+
 class GroceryViewModel(private val repository: GroceryRepository) : ViewModel() {
     val items = repository.items.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _suggestions = MutableStateFlow<List<GrocerySuggestion>>(emptyList())
@@ -24,7 +26,7 @@ class GroceryViewModel(private val repository: GroceryRepository) : ViewModel() 
         syncJob = viewModelScope.launch {
             while (isActive) {
                 repository.synchronize().onSuccess { rejected -> rejected.firstOrNull()?.let { _message.emit(it) } }
-                delay(15_000)
+                delay(GROCERY_SYNC_INTERVAL_MILLIS)
             }
         }
     }
