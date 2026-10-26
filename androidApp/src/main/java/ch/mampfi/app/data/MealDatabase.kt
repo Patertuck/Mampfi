@@ -7,11 +7,19 @@ import kotlinx.coroutines.flow.Flow
     @Query("SELECT * FROM mahlzeiten") fun observeAll(): Flow<List<MahlzeitEntity>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertAll(items: List<MahlzeitEntity>)
     @Query("DELETE FROM mahlzeiten") suspend fun clear()
+    @Transaction suspend fun replaceAll(items: List<MahlzeitEntity>) {
+        clear()
+        upsertAll(items)
+    }
 }
 @Dao interface AwayEntryDao {
     @Query("SELECT * FROM auswaerts_eintraege ORDER BY datum") fun observeAll(): Flow<List<AuswaertsEintragEntity>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertAll(items: List<AuswaertsEintragEntity>)
     @Query("DELETE FROM auswaerts_eintraege") suspend fun clear()
+    @Transaction suspend fun replaceAll(items: List<AuswaertsEintragEntity>) {
+        clear()
+        upsertAll(items)
+    }
 }
 @Entity(tableName = "grocery_items")
 data class GroceryItemEntity(@PrimaryKey val id: String, val json: String, val revision: Long, val deleted: Boolean)

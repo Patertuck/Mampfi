@@ -75,10 +75,11 @@ class MealRepository(private val api: MealApi, private val dao: MealDao, private
         api.upload(mealId, entryId, MultipartBody.Part.createFormData("datei", name, body)).withResolvedImageUrl()
             .also { refresh().getOrThrow() }
     }
-    private suspend fun cache(items: List<Mahlzeit>) { dao.clear(); dao.upsertAll(items.map { MahlzeitEntity(it.id, json.encodeToString(Mahlzeit.serializer(), it)) }) }
+    private suspend fun cache(items: List<Mahlzeit>) {
+        dao.replaceAll(items.map { MahlzeitEntity(it.id, json.encodeToString(Mahlzeit.serializer(), it)) })
+    }
     private suspend fun cacheAwayEntries(items: List<AuswaertsEintrag>) {
-        awayDao.clear()
-        awayDao.upsertAll(items.map { AuswaertsEintragEntity(it.id, it.datum, it.notiz) })
+        awayDao.replaceAll(items.map { AuswaertsEintragEntity(it.id, it.datum, it.notiz) })
     }
     private fun MahlzeitBild.withResolvedImageUrl() = copy(url = if (url.startsWith("/")) baseUrl.dropLast(1) + url else url)
     private fun MahlzeitBild.withRelativeImageUrl() = copy(url = url.substringAfter("/uploads/", url).let { if (it == url) url else "/uploads/$it" })
