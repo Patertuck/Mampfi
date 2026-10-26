@@ -7,6 +7,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import java.time.Instant
 import java.util.UUID
+import java.io.InputStream
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 
 sealed interface GroceryBarcodeResult {
     data class Found(val suggestion: GrocerySuggestion) : GroceryBarcodeResult
@@ -54,6 +58,12 @@ class GroceryRepository(
     suspend fun update(item: GroceryItem): Result<Unit> = runCatching {
         remember(GrocerySuggestion(item.product, item.category), Instant.now().toString())
         mutate(item.copy(revision = item.revision), GroceryMutationType.UPDATE).getOrThrow()
+    }
+    suspend fun replaceImage(itemId: String, name: String, stream: InputStream): Result<Unit> = runCatching {
+        val body = stream.readBytes().toRequestBody("image/*".toMediaType())
+        val updated = api.replaceGroceryImage(itemId, MultipartBody.Part.createFormData("datei", name, body))
+        dao.upsert(updated.entity())
+        synchronize().getOrThrow()
     }
     suspend fun complete(item: GroceryItem): Result<Unit> {
         val now = Instant.now().toString()

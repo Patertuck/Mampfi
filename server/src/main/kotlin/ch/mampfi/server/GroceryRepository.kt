@@ -4,6 +4,8 @@ import kotlinx.serialization.json.Json
 import java.sql.Connection
 import java.sql.DriverManager
 
+internal data class GroceryImageReplacement(val item: GroceryItem, val previousImageUrl: String?)
+
 class GroceryRepository(database: String) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val connection = DriverManager.getConnection("jdbc:sqlite:$database")
@@ -87,6 +89,20 @@ class GroceryRepository(database: String) {
         }
         rememberProduct(item)
         return null
+    }
+
+    @Synchronized internal fun replaceImage(id: String, imageUrl: String): GroceryImageReplacement? = transaction {
+        val current = find(id) ?: return@transaction null
+        if (current.deleted || current.completedAt != null) return@transaction null
+        val updated = current.copy(product = current.product.copy(imageUrl = imageUrl), revision = nextRevision())
+        connection.prepareStatement("UPDATE grocery_items SET product_json = ?, revision = ? WHERE id = ?").use {
+            it.setString(1, json.encodeToString(GroceryProductRef.serializer(), updated.product))
+            it.setLong(2, updated.revision)
+            it.setString(3, id)
+            it.executeUpdate()
+        }
+        rememberProduct(updated)
+        GroceryImageReplacement(updated, current.product.imageUrl)
     }
 
     private fun complete(id: String, at: String): String? {

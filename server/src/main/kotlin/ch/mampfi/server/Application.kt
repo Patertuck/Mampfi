@@ -94,6 +94,19 @@ fun Application.module(
             post("/sync") {
                 call.respond(groceryRepository.sync(call.receive<GrocerySyncRequest>()))
             }
+            put("/{id}/bild") {
+                val part = call.receiveMultipart().readPart() as? PartData.FileItem
+                    ?: run { call.respond(HttpStatusCode.BadRequest, mapOf("fehler" to "Bilddatei fehlt")); return@put }
+                val image = saveImage(part, uploads)
+                val replacement = groceryRepository.replaceImage(call.parameters["id"]!!, image.url)
+                if (replacement == null) {
+                    deleteUploadedFile(uploads, image.url)
+                    call.respond(HttpStatusCode.NotFound)
+                } else {
+                    replacement.previousImageUrl?.takeIf { it.startsWith("/uploads/") }?.let { deleteUploadedFile(uploads, it) }
+                    call.respond(replacement.item)
+                }
+            }
             post("/suche") {
                 val query = call.receive<GrocerySearchRequest>().query.trim()
                 if (query.length < 2) {

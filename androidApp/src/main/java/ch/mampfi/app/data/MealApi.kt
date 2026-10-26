@@ -9,6 +9,9 @@ interface MealApi {
     @POST("api/einkauf/suche") suspend fun searchGroceries(@Body request: GrocerySearchRequest): List<GrocerySuggestion>
     @GET("api/einkauf/produkt/{barcode}") suspend fun groceryByBarcode(@Path("barcode") barcode: String): Response<GrocerySuggestion>
     @POST("api/einkauf/sync") suspend fun syncGroceries(@Body request: GrocerySyncRequest): GrocerySyncResponse
+    @Multipart @PUT("api/einkauf/{id}/bild") suspend fun replaceGroceryImage(
+        @Path("id") id: String, @Part image: MultipartBody.Part,
+    ): GroceryItem
     @GET("api/auswaerts") suspend fun allAwayEntries(): List<AuswaertsEintrag>
     @POST("api/auswaerts") suspend fun createAwayEntry(@Body entry: AuswaertsEintrag): AuswaertsEintrag
     @PUT("api/auswaerts/{id}") suspend fun updateAwayEntry(@Path("id") id: String, @Body entry: AuswaertsEintrag): AuswaertsEintrag

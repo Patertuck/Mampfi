@@ -2,6 +2,9 @@
 package ch.mampfi.app
 
 import android.app.Activity
+import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,6 +38,10 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import java.util.Locale
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+
+data class GroceryImageUpload(val filename: String, val openStream: () -> java.io.InputStream)
 
 private val categoryOrder = GroceryCategory.entries.withIndex().associate { it.value to it.index }
 
@@ -196,7 +203,7 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
             allowedUnits = GroceryUnit.entries,
             confirmLabel = "Hinzufügen",
             dismiss = { draft = null },
-        ) { quantity, unit, category ->
+        ) { quantity, unit, category, _ ->
             vm.add(suggestion.copy(category = category), quantity, unit)
             query = ""; vm.clearSearch(); draft = null
         }
@@ -210,8 +217,8 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
             allowedUnits = GroceryUnit.entries.filter { it.dimension() == item.dimension },
             confirmLabel = "Speichern",
             dismiss = { editing = null },
-        ) { quantity, unit, category ->
-            vm.update(item.copy(baseQuantity = quantity, preferredUnit = unit, category = category))
+        ) { quantity, unit, category, image ->
+            vm.update(item.copy(baseQuantity = quantity, preferredUnit = unit, category = category), image)
             editing = null
         }
     }
@@ -312,13 +319,29 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
     allowedUnits: List<GroceryUnit>,
     confirmLabel: String,
     dismiss: () -> Unit,
-    confirm: (Double, GroceryUnit, GroceryCategory) -> Unit,
+    confirm: (Double, GroceryUnit, GroceryCategory, GroceryImageUpload?) -> Unit,
 ) {
     var amount by remember(product.stableKey, initialQuantity) { mutableStateOf(initialQuantity) }
     var unit by remember(product.stableKey, initialUnit) { mutableStateOf(initialUnit) }
     var category by remember(product.stableKey, initialCategory) { mutableStateOf(initialCategory) }
     var unitMenu by remember { mutableStateOf(false) }
     var categoryMenu by remember { mutableStateOf(false) }
+    var selectedImage by remember { mutableStateOf<GroceryImageUpload?>(null) }
+    var selectedPreview by remember { mutableStateOf<Any?>(null) }
+    val context = LocalContext.current
+    fun chooseImage(stream: () -> java.io.InputStream, filename: String, preview: Any) {
+        selectedImage = GroceryImageUpload(filename, stream)
+        selectedPreview = preview
+    }
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { chooseImage({ context.contentResolver.openInputStream(it)!! }, "galerie.jpg", it) }
+    }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? ->
+        bitmap?.let { captured ->
+            val bytes = ByteArrayOutputStream().also { captured.compress(Bitmap.CompressFormat.JPEG, 90, it) }.toByteArray()
+            chooseImage({ ByteArrayInputStream(bytes) }, "kamera.jpg", captured)
+        }
+    }
     val base = quantityToBase(amount, unit)
     MampfiDialog(
         title = if (confirmLabel == "Speichern") "Artikel bearbeiten" else "Artikel hinzufügen",
@@ -328,7 +351,8 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
         content = {
             Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (product.imageUrl != null) AsyncImage(product.imageUrl, null, Modifier.size(52.dp))
+                    if (selectedPreview != null) AsyncImage(selectedPreview, "Ausgewähltes Bild", Modifier.size(52.dp))
+                    else if (product.imageUrl != null) AsyncImage(product.imageUrl, null, Modifier.size(52.dp))
                     else Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
                         Icon(Icons.Outlined.ShoppingBasket, null, Modifier.padding(12.dp).size(28.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
@@ -337,6 +361,17 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
                         listOfNotNull(product.brand, product.packageSize).takeIf { it.isNotEmpty() }?.let {
                             Text(it.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                    }
+                }
+            }
+            if (confirmLabel == "Speichern") {
+                Text("Bild", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton({ gallery.launch("image/*") }, Modifier.weight(1f)) {
+                        Icon(Icons.Outlined.Image, null); Spacer(Modifier.width(6.dp)); Text(if (product.imageUrl == null) "Galerie" else "Ersetzen")
+                    }
+                    OutlinedButton({ camera.launch(null) }, Modifier.weight(1f)) {
+                        Icon(Icons.Outlined.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Kamera")
                     }
                 }
             }
@@ -384,7 +419,7 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
         },
         actions = {
             TextButton(dismiss, Modifier.weight(1f)) { Text("Abbrechen") }
-            Button({ base?.let { confirm(it, unit, category) } }, enabled = base != null, modifier = Modifier.weight(1f)) {
+            Button({ base?.let { confirm(it, unit, category, selectedImage) } }, enabled = base != null, modifier = Modifier.weight(1f)) {
                 Icon(if (confirmLabel == "Speichern") Icons.Outlined.Save else Icons.Outlined.Add, null)
                 Spacer(Modifier.width(6.dp))
                 Text(confirmLabel)

@@ -48,7 +48,21 @@ class GroceryViewModel(private val repository: GroceryRepository) : ViewModel() 
         repository.addAll(items).onSuccess { _message.emit("${items.size} Zutaten hinzugefügt."); completed(true) }
             .onFailure { _message.emit("Zutaten konnten nicht hinzugefügt werden."); completed(false) }
     }
-    fun update(item: GroceryItem) = launch("Ändern fehlgeschlagen.") { repository.update(item) }
+    fun update(item: GroceryItem, image: GroceryImageUpload? = null) = viewModelScope.launch {
+        repository.update(item).onFailure {
+            _message.emit("Ändern fehlgeschlagen.")
+            return@launch
+        }
+        if (image == null) {
+            _message.emit("Artikel gespeichert.")
+            return@launch
+        }
+        repository.replaceImage(item.id, image.filename, image.openStream()).onSuccess {
+            _message.emit("Artikel und Bild gespeichert.")
+        }.onFailure {
+            _message.emit("Artikel gespeichert, Bild konnte nicht ersetzt werden.")
+        }
+    }
     fun complete(item: GroceryItem) = launch("Abhaken fehlgeschlagen.") { repository.complete(item) }
     fun restore(item: GroceryItem) = launch("Wiederherstellen fehlgeschlagen.") { repository.restore(item) }
     fun delete(item: GroceryItem) = launch("Löschen fehlgeschlagen.") { repository.delete(item) }
