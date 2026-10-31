@@ -77,7 +77,6 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
     }
     fun saveIdea(meal: Mahlzeit, isNew: Boolean, onComplete: (Boolean) -> Unit) = viewModelScope.launch {
         val result = if (isNew) repository.createIdea(meal) else repository.updateIdea(meal)
-        if (result.isSuccess) autoExtractIfEmpty(meal)
         result
             .onSuccess { _message.emit("Idee gespeichert."); onComplete(true) }
             .onFailure { _message.emit("Speichern fehlgeschlagen."); onComplete(false) }
