@@ -1,7 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package ch.mampfi.app
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -342,6 +345,13 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
             chooseImage({ ByteArrayInputStream(bytes) }, "kamera.jpg", captured)
         }
     }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) camera.launch(null)
+    }
+    fun openCamera() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) camera.launch(null)
+        else cameraPermission.launch(Manifest.permission.CAMERA)
+    }
     val base = quantityToBase(amount, unit)
     MampfiDialog(
         title = if (confirmLabel == "Speichern") "Artikel bearbeiten" else "Artikel hinzufügen",
@@ -370,7 +380,7 @@ internal fun GroceryScreen(vm: GroceryViewModel) {
                     OutlinedButton({ gallery.launch("image/*") }, Modifier.weight(1f)) {
                         Icon(Icons.Outlined.Image, null); Spacer(Modifier.width(6.dp)); Text(if (product.imageUrl == null) "Galerie" else "Ersetzen")
                     }
-                    OutlinedButton({ camera.launch(null) }, Modifier.weight(1f)) {
+                    OutlinedButton({ openCamera() }, Modifier.weight(1f)) {
                         Icon(Icons.Outlined.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Kamera")
                     }
                 }
