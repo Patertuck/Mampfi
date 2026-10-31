@@ -114,6 +114,12 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
             }
             .onFailure { _message.emit("Zutaten konnten nicht automatisch erkannt werden."); onComplete(null) }
     }
+    fun inspectRecipe(link: String, onComplete: (RecipeExtractResponse?) -> Unit) = viewModelScope.launch {
+        repository.extractRecipe(link).fold(
+            onSuccess = onComplete,
+            onFailure = { onComplete(null) },
+        )
+    }
     private suspend fun autoExtractIfEmpty(meal: Mahlzeit) {
         val link = meal.rezeptLink ?: return
         if (meal.ingredients.isNotEmpty() || !isSupportedRecipeLink(link)) return

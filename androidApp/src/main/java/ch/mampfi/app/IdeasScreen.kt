@@ -196,6 +196,14 @@ internal fun IdeaEditScreen(
     var confirmDiscard by remember { mutableStateOf(false) }
     var validationRequested by remember { mutableStateOf(false) }
     var savingAction by remember { mutableStateOf<IdeaSaveAction?>(null) }
+    LaunchedEffect(isNew, initialDraft?.link) {
+        val draft = initialDraft ?: return@LaunchedEffect
+        if (!isNew || !isSupportedRecipeLink(draft.link)) return@LaunchedEffect
+        vm.inspectRecipe(draft.link) { extracted ->
+            val extractedTitle = extracted?.title?.trim().orEmpty()
+            if (extractedTitle.isNotEmpty() && name == draft.name) name = extractedTitle
+        }
+    }
     val initialTags = remember(selectedIdea) {
         selectedIdea?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet()
     }

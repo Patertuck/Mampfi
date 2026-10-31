@@ -26,7 +26,11 @@ private fun nameCandidate(value: String?, sharedLink: String): String? {
         ?.replace(sharedLink, "")
         ?.trim(' ', '\t', '\r', '\n', '-', '–', '—', ':', '|')
         ?.let(::normalizePastedMealName)
+        ?.replace(FOOBY_SHARE_PREFIX, "")
+        ?.trim()
         ?.takeIf { it.isNotBlank() }
         ?: return null
     return candidate.takeIf { normalizedWebUrlOrNull(it) == null }
 }
+
+private val FOOBY_SHARE_PREFIX = Regex("^Gesehen bei FOOBY\\s*:\\s*", RegexOption.IGNORE_CASE)

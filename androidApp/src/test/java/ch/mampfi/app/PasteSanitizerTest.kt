@@ -87,4 +87,15 @@ class PasteSanitizerTest {
     fun `rejects shares without a web link`() {
         assertNull(parseSharedMealDraft("Creamy pasta", "Recipe"))
     }
+
+    @Test
+    fun `removes Fooby share prefix from meal name`() {
+        assertEquals(
+            SharedMealDraft("Blumenkohl süß-sauer", "https://fooby.ch/de/rezepte/12345/blumenkohl-suess-sauer"),
+            parseSharedMealDraft(
+                "Gesehen bei FOOBY: Blumenkohl süß-sauer\nhttps://fooby.ch/de/rezepte/12345/blumenkohl-suess-sauer",
+                null,
+            ),
+        )
+    }
 }
