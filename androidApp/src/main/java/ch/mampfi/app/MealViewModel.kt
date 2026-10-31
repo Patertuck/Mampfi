@@ -30,6 +30,9 @@ internal fun isSupportedRecipeLink(link: String): Boolean = runCatching {
     )
 }.getOrDefault(false)
 
+internal fun canRequestRecipeExtraction(link: String?, extracting: Boolean = false): Boolean =
+    !link.isNullOrBlank() && !extracting
+
 internal fun SyncStatus.afterRefresh(success: Boolean, completedAt: Instant): SyncStatus = if (success) {
     copy(isRefreshing = false, isOffline = false, lastSuccessfulRefresh = completedAt)
 } else {
@@ -75,10 +78,13 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
         if (saved.isSuccess) autoExtractIfEmpty(meal)
         saveWithOptionalImage(saved, meal.id, entry.id, image, onComplete)
     }
-    fun saveIdea(meal: Mahlzeit, isNew: Boolean, onComplete: (Boolean) -> Unit) = viewModelScope.launch {
+    fun saveIdea(meal: Mahlzeit, isNew: Boolean, notifySuccess: Boolean = true, onComplete: (Boolean) -> Unit) = viewModelScope.launch {
         val result = if (isNew) repository.createIdea(meal) else repository.updateIdea(meal)
         result
-            .onSuccess { _message.emit("Idee gespeichert."); onComplete(true) }
+            .onSuccess {
+                onComplete(true)
+                if (notifySuccess) _message.emit("Idee gespeichert.")
+            }
             .onFailure { _message.emit("Speichern fehlgeschlagen."); onComplete(false) }
     }
     fun deleteIdea(mealId: String, onSuccess: () -> Unit) = viewModelScope.launch {
@@ -116,7 +122,9 @@ class MealViewModel(private val repository: MealRepository) : ViewModel() {
         }.onFailure { _message.emit("Zutaten konnten nicht automatisch erkannt werden. Du kannst sie manuell erfassen.") }
     }
     fun createEntry(meal: Mahlzeit, entry: MahlzeitEintrag, image: PendingImageUpload? = null, onComplete: (Boolean) -> Unit = {}) = viewModelScope.launch {
-        saveWithOptionalImage(repository.createEntry(meal, entry), meal.id, entry.id, image, onComplete)
+        val saved = repository.createEntry(meal, entry)
+        if (saved.isSuccess) autoExtractIfEmpty(meal.copy(istIdee = false))
+        saveWithOptionalImage(saved, meal.id, entry.id, image, onComplete)
     }
     fun updateEntry(meal: Mahlzeit, entry: MahlzeitEintrag, onComplete: (Boolean) -> Unit = {}) = viewModelScope.launch { repository.updateEntry(meal, entry).notifySave(onComplete) }
     fun moveEntry(meal: Mahlzeit, entry: MahlzeitEintrag, date: LocalDate, onComplete: (Boolean) -> Unit) = viewModelScope.launch {

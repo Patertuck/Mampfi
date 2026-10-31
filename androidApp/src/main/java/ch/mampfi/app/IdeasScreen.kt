@@ -223,7 +223,7 @@ internal fun IdeaEditScreen(
         if (!validation.isValid) return
         val idea = ideaOrNull() ?: return
         savingAction = action
-        vm.saveIdea(idea, isNew) { success ->
+        vm.saveIdea(idea, isNew, notifySuccess = action == IdeaSaveAction.SAVE) { success ->
             savingAction = null
             if (success) {
                 if (action == IdeaSaveAction.SCHEDULE) schedule(idea.id) else done()

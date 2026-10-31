@@ -17,4 +17,13 @@ class RecipeLinkSupportTest {
         assertFalse(isSupportedRecipeLink("https://share.kptncook.com.example.test/Dh4a/n7482bp6"))
         assertFalse(isSupportedRecipeLink("not a URL"))
     }
+
+    @Test fun `extraction action is available for any stored recipe link while idle`() {
+        assertTrue(canRequestRecipeExtraction("https://fooby.ch/de/rezepte/123/test"))
+        assertTrue(canRequestRecipeExtraction("https://share.kptncook.com/Dh4a/n7482bp6"))
+        assertTrue(canRequestRecipeExtraction("https://another-provider.example/recipe"))
+        assertFalse(canRequestRecipeExtraction(null))
+        assertFalse(canRequestRecipeExtraction("  "))
+        assertFalse(canRequestRecipeExtraction("https://fooby.ch/de/rezepte/123/test", extracting = true))
+    }
 }

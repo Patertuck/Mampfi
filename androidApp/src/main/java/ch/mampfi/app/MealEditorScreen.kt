@@ -324,7 +324,7 @@ internal fun EditScreen(vm: MealViewModel, groceryVm: GroceryViewModel, date: Lo
                             }
                         } else reloadIngredientsConfirmationVisible = true
                     },
-                    enabled = normalizedWebUrlOrNull(ingredientMeal.rezeptLink.orEmpty()) != null && !extractingIngredients,
+                    enabled = canRequestRecipeExtraction(ingredientMeal.rezeptLink, extractingIngredients),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     if (extractingIngredients) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)

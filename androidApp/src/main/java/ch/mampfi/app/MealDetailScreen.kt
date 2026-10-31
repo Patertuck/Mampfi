@@ -129,7 +129,7 @@ internal fun MealDetailScreen(
                         OutlinedButton({ ingredientEditorVisible = true }, Modifier.weight(1f)) { Icon(Icons.Outlined.Edit, null); Spacer(Modifier.width(6.dp)); Text("Bearbeiten") }
                         OutlinedButton(
                             { if (meal.ingredients.isEmpty()) vm.extractIngredients(meal) else reloadConfirmationVisible = true },
-                            enabled = recipeUrl != null,
+                            enabled = canRequestRecipeExtraction(meal.rezeptLink),
                             modifier = Modifier.weight(1f),
                         ) { Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Laden") }
                     }
