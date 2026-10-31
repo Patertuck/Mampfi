@@ -26,7 +26,8 @@ data class SyncStatus(
 internal fun isSupportedRecipeLink(link: String): Boolean = runCatching {
     val uri = URI(link)
     uri.scheme.equals("https", ignoreCase = true) && uri.host?.lowercase() in setOf(
-        "fooby.ch", "www.fooby.ch", "share.kptncook.com", "mobile.kptncook.com",
+        "fooby.ch", "www.fooby.ch", "little.fooby.ch",
+        "share.kptncook.com", "mobile.kptncook.com", "app.kptncook.com",
     )
 }.getOrDefault(false)
 

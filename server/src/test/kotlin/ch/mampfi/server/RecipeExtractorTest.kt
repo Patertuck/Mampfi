@@ -58,11 +58,7 @@ class RecipeExtractorTest {
             when {
                 request.url.host == "share.kptncook.com" -> respond(
                     "", HttpStatusCode.MovedPermanently,
-                    headersOf(HttpHeaders.Location, "https://mobile.kptncook.com/recipe/Blumenkohl%20s%C3%BC%C3%9F-sauer/d1b96d10"),
-                )
-                request.url.encodedPath == "/recipe/Blumenkohl%20s%C3%BC%C3%9F-sauer/d1b96d10" -> respond(
-                    "", HttpStatusCode.MovedPermanently,
-                    headersOf(HttpHeaders.Location, "/recipe/pinterest/Blumenkohl%20s%C3%BC%C3%9F-sauer/d1b96d10?lang=de"),
+                    headersOf(HttpHeaders.Location, "https://app.kptncook.com/de/recipes/Blumenkohl%20s%C3%BC%C3%9F-sauer/d1b96d10"),
                 )
                 else -> respond(html, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, ContentType.Text.Html.toString()))
             }
@@ -79,6 +75,28 @@ class RecipeExtractorTest {
         assertEquals(RecipeIngredientValues("Sojasauce", "1", GroceryUnit.TBSP, null), result.ingredients[2].values())
         assertEquals(RecipeIngredientValues("Salz", null, GroceryUnit.CUSTOM, "nach Bedarf"), result.ingredients[8].values())
         assertEquals(RecipeIngredientValues("Frühlingszwiebel", "1", GroceryUnit.PIECE, null), result.ingredients[11].values())
+    }
+
+    @Test fun `follows Fooby redirect to little Fooby and parses supplied recipe`() = runBlocking {
+        val html = """
+            <html><head><script type="application/ld+json">
+            {"@context":"https://schema.org","@type":"Recipe","name":"Aelpler One Pot","recipeYield":"4",
+             "recipeIngredient":["200 g Kartoffeln","1 Apfel"]}
+            </script></head></html>
+        """.trimIndent()
+        val client = HttpClient(MockEngine { request ->
+            if (request.url.host == "fooby.ch") respond(
+                "", HttpStatusCode.MovedPermanently,
+                headersOf(HttpHeaders.Location, "https://little.fooby.ch/de/rezepte/19291/aelpler-one-pot"),
+            ) else respond(html, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, ContentType.Text.Html.toString()))
+        }) { followRedirects = false }
+
+        val result = SupportedRecipeExtractor(client).extract("https://fooby.ch/de/rezepte/19291/")
+
+        assertEquals("FOOBY", result.source)
+        assertEquals("Aelpler One Pot", result.title)
+        assertEquals(4, result.recipeServings)
+        assertEquals(listOf("Kartoffeln", "Apfel"), result.ingredients.map { it.name })
     }
 
     @Test fun `parses KptnCook count names fractions and provider units`() {

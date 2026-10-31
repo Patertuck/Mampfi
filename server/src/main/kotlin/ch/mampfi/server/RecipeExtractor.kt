@@ -236,8 +236,8 @@ class SupportedRecipeExtractor(private val client: HttpClient = HttpClient(CIO) 
     }
 
     private enum class RecipeProvider(val source: String, val label: String, val hosts: Set<String>) {
-        FOOBY("FOOBY", "FOOBY", setOf("fooby.ch", "www.fooby.ch")),
-        KPTNCOOK("KPTNCOOK", "KptnCook", setOf("share.kptncook.com", "mobile.kptncook.com"));
+        FOOBY("FOOBY", "FOOBY", setOf("fooby.ch", "www.fooby.ch", "little.fooby.ch")),
+        KPTNCOOK("KPTNCOOK", "KptnCook", setOf("share.kptncook.com", "mobile.kptncook.com", "app.kptncook.com"));
 
         companion object {
             fun forHost(host: String?) = entries.firstOrNull { host?.lowercase() in it.hosts }

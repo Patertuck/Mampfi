@@ -7,8 +7,10 @@ import kotlin.test.assertTrue
 class RecipeLinkSupportTest {
     @Test fun `supports Fooby and KptnCook https links`() {
         assertTrue(isSupportedRecipeLink("https://fooby.ch/de/rezepte/123/test"))
+        assertTrue(isSupportedRecipeLink("https://little.fooby.ch/de/rezepte/19291/aelpler-one-pot"))
         assertTrue(isSupportedRecipeLink("https://share.kptncook.com/Dh4a/n7482bp6"))
         assertTrue(isSupportedRecipeLink("https://mobile.kptncook.com/recipe/example/d1b96d10"))
+        assertTrue(isSupportedRecipeLink("https://app.kptncook.com/de/recipes/example/d1b96d10"))
     }
 
     @Test fun `rejects insecure malformed and lookalike recipe links`() {
