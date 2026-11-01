@@ -11,23 +11,27 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class GroceryApiTest {
-    @Test fun `search combines reusable and external suggestions`() = testApplication {
+    @Test fun `search returns remembered suggestions only`() = testApplication {
         val directory = createTempDirectory("mampfi-grocery-api").toFile()
-        val external = GrocerySuggestion(
-            GroceryProductRef(GrocerySource.OPEN_FOOD_FACTS, "off:123", "Bio Äpfel", barcode = "123"),
+        val database = File(directory, "mampfi.db")
+        val remembered = GrocerySuggestion(
+            GroceryProductRef(GrocerySource.MANUAL, "manual:bio-aepfel", "Bio Aepfel"),
             GroceryCategory.FRUIT,
         )
-        application { module(File(directory, "mampfi.db").path, File(directory, "uploads"), object : GroceryCatalogProvider {
-            override suspend fun search(query: String) = listOf(external)
-            override suspend fun lookupBarcode(barcode: String) = GroceryBarcodeLookup.Found(external)
+        GroceryRepository(database.path).sync(GrocerySyncRequest("phone", 0, listOf(GroceryMutation(
+            "add-apples", GroceryMutationType.ADD, "apples", "2026-11-01T12:00:00Z",
+            GroceryItem("apples", remembered.product, remembered.category, 1.0, GroceryDimension.COUNT, GroceryUnit.PIECE, createdAt = "2026-11-01T12:00:00Z"),
+        ))))
+        application { module(database.path, File(directory, "uploads"), object : GroceryCatalogProvider {
+            override suspend fun lookupBarcode(barcode: String) = GroceryBarcodeLookup.NotFound
         }) }
 
         val response = client.post("/api/einkauf/suche") {
             contentType(ContentType.Application.Json)
-            setBody("""{"query":"Äpfel"}""")
+            setBody("""{"query":"Aepfel"}""")
         }
         assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals(listOf(external), Json.decodeFromString<List<GrocerySuggestion>>(response.bodyAsText()))
+        assertEquals(listOf(remembered), Json.decodeFromString<List<GrocerySuggestion>>(response.bodyAsText()))
     }
 
     @Test fun `barcode lookup returns exact external product`() = testApplication {
@@ -37,7 +41,6 @@ class GroceryApiTest {
             GroceryCategory.DAIRY_EGGS,
         )
         application { module(File(directory, "mampfi.db").path, File(directory, "uploads"), object : GroceryCatalogProvider {
-            override suspend fun search(query: String) = emptyList<GrocerySuggestion>()
             override suspend fun lookupBarcode(barcode: String) = GroceryBarcodeLookup.Found(external)
         }) }
 

@@ -6,11 +6,8 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.*
 import kotlinx.serialization.json.*
-import java.time.Instant
-import java.util.concurrent.ConcurrentHashMap
 
 interface GroceryCatalogProvider {
-    suspend fun search(query: String): List<GrocerySuggestion>
     suspend fun lookupBarcode(barcode: String): GroceryBarcodeLookup
 }
 
@@ -21,44 +18,11 @@ sealed interface GroceryBarcodeLookup {
 }
 
 class OpenFoodFactsCatalog(
-    private val endpoint: String = "https://search.openfoodfacts.org/search",
     private val productEndpoint: String = "https://world.openfoodfacts.org/api/v3/product",
     private val client: HttpClient = HttpClient(CIO),
     private val reportError: (Throwable) -> Unit = {},
 ) : GroceryCatalogProvider {
-    private data class CacheEntry(val createdAt: Instant, val results: List<GrocerySuggestion>)
     private val json = Json { ignoreUnknownKeys = true }
-    private val cache = ConcurrentHashMap<String, CacheEntry>()
-    private val requestTimes = ArrayDeque<Instant>()
-
-    override suspend fun search(query: String): List<GrocerySuggestion> {
-        val normalized = query.trim().lowercase()
-        if (normalized.length < 3) return emptyList()
-        cache[normalized]?.takeIf { it.createdAt.isAfter(Instant.now().minusSeconds(86_400)) }?.let { return it.results }
-        synchronized(requestTimes) {
-            val cutoff = Instant.now().minusSeconds(60)
-            while (requestTimes.firstOrNull()?.isBefore(cutoff) == true) requestTimes.removeFirst()
-            if (requestTimes.size >= 8) return emptyList()
-            requestTimes.addLast(Instant.now())
-        }
-        return runCatching {
-            val response = client.get(endpoint) {
-                userAgent("Mampfi/1.0 (private grocery planner; Open Food Facts integration)")
-                url {
-                    parameters.append("q", query.trim())
-                    parameters.append("page_size", "12")
-                    parameters.append("boost_phrase", "true")
-                    parameters.append("langs", "de,fr,it,en")
-                    parameters.append("fields", "code,product_name,product_name_de,product_name_fr,product_name_it,brands,quantity,image_front_url,categories_tags")
-                }
-            }
-            if (!response.status.isSuccess()) error("Open Food Facts search returned ${response.status}")
-            parse(response.bodyAsText()).also { cache[normalized] = CacheEntry(Instant.now(), it) }
-        }.getOrElse { error ->
-            reportError(error)
-            emptyList()
-        }
-    }
 
     override suspend fun lookupBarcode(barcode: String): GroceryBarcodeLookup = try {
         val response = client.get("$productEndpoint/$barcode") {
@@ -79,21 +43,6 @@ class OpenFoodFactsCatalog(
     } catch (error: Throwable) {
         reportError(error)
         GroceryBarcodeLookup.Unavailable
-    }
-
-    internal fun parse(body: String): List<GrocerySuggestion> {
-        val root = json.parseToJsonElement(body).jsonObject
-        val hitValue = root["hits"]
-        val hits = when (hitValue) {
-            is JsonArray -> hitValue
-            is JsonObject -> hitValue["hits"] as? JsonArray ?: JsonArray(emptyList())
-            else -> root["products"] as? JsonArray ?: JsonArray(emptyList())
-        }
-        return hits.mapNotNull { hit ->
-            val wrapper = hit.jsonObject
-            val source = (wrapper["_source"] ?: hit).jsonObject
-            parseProduct(source)
-        }.distinctBy { it.product.stableKey }
     }
 
     internal fun parseProductResponse(body: String): GrocerySuggestion? {

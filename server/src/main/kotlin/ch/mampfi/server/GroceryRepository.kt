@@ -43,13 +43,6 @@ class GroceryRepository(database: String) {
         } }
     }
 
-    @Synchronized fun categoryFor(stableKey: String): GroceryCategory? = connection.prepareStatement(
-        "SELECT category FROM grocery_products WHERE stable_key = ?",
-    ).use { statement ->
-        statement.setString(1, stableKey)
-        statement.executeQuery().use { rows -> if (rows.next()) GroceryCategory.valueOf(rows.getString(1)) else null }
-    }
-
     private fun applyMutation(mutation: GroceryMutation): String? {
         return when (mutation.type) {
             GroceryMutationType.ADD -> add(mutation.item ?: return "Item fehlt")
@@ -210,7 +203,9 @@ class GroceryRepository(database: String) {
     }
 
     private fun createSchema() = connection.createStatement().use { statement ->
-        statement.executeUpdate("CREATE TABLE IF NOT EXISTS grocery_meta (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL)")
+        statement.executeUpdate("CREATE TABLE IF NOT EXISTS grocery_meta (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, suggestions_reset_version INTEGER NOT NULL DEFAULT 0)")
+        val metaColumns = statement.executeQuery("PRAGMA table_info(grocery_meta)").use { rows -> buildSet { while (rows.next()) add(rows.getString("name")) } }
+        if ("suggestions_reset_version" !in metaColumns) statement.executeUpdate("ALTER TABLE grocery_meta ADD COLUMN suggestions_reset_version INTEGER NOT NULL DEFAULT 0")
         statement.executeUpdate("INSERT OR IGNORE INTO grocery_meta (id, revision) VALUES (1, 0)")
         statement.executeUpdate("CREATE TABLE IF NOT EXISTS grocery_items (id TEXT PRIMARY KEY, product_json TEXT NOT NULL, stable_key TEXT NOT NULL, category TEXT NOT NULL, base_quantity INTEGER NOT NULL, dimension TEXT NOT NULL, preferred_unit TEXT NOT NULL, created_at TEXT NOT NULL, completed_at TEXT, revision INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0)")
         val columns = statement.executeQuery("PRAGMA table_info(grocery_items)").use { rows -> buildSet { while (rows.next()) add(rows.getString("name")) } }
@@ -219,6 +214,11 @@ class GroceryRepository(database: String) {
         statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_grocery_items_revision ON grocery_items(revision)")
         statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_grocery_items_active ON grocery_items(stable_key, dimension, completed_at, deleted)")
         statement.executeUpdate("CREATE TABLE IF NOT EXISTS grocery_products (stable_key TEXT PRIMARY KEY, name TEXT NOT NULL, product_json TEXT NOT NULL, category TEXT NOT NULL, last_used_at TEXT NOT NULL)")
+        val suggestionsResetVersion = statement.executeQuery("SELECT suggestions_reset_version FROM grocery_meta WHERE id = 1").use { rows -> rows.next(); rows.getInt(1) }
+        if (suggestionsResetVersion < 1) {
+            statement.executeUpdate("DELETE FROM grocery_products")
+            statement.executeUpdate("UPDATE grocery_meta SET suggestions_reset_version = 1 WHERE id = 1")
+        }
         statement.executeUpdate("CREATE TABLE IF NOT EXISTS grocery_mutations (operation_id TEXT PRIMARY KEY)")
         statement.execute("PRAGMA user_version = 7")
     }

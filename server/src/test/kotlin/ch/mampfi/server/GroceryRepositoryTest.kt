@@ -1,6 +1,7 @@
 package ch.mampfi.server
 
 import java.nio.file.Files
+import java.sql.DriverManager
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.Test
@@ -8,6 +9,25 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class GroceryRepositoryTest {
+    @Test fun `suggestion reset runs once without clearing groceries`() {
+        val database = Files.createTempDirectory("mampfi-grocery-reset").resolve("test.db").toString()
+        val original = GroceryRepository(database)
+        val oldItem = item("old", 1, GroceryUnit.G)
+        original.sync(GrocerySyncRequest("phone", 0, listOf(mutation("add-old", GroceryMutationType.ADD, oldItem))))
+        assertEquals(1, original.manualSuggestions("Testprodukt").size)
+
+        DriverManager.getConnection("jdbc:sqlite:$database").use { connection ->
+            connection.createStatement().use { it.executeUpdate("UPDATE grocery_meta SET suggestions_reset_version = 0 WHERE id = 1") }
+        }
+        val upgraded = GroceryRepository(database)
+        assertTrue(upgraded.manualSuggestions("Testprodukt").isEmpty())
+        assertEquals(oldItem.id, upgraded.sync(GrocerySyncRequest("phone", 0)).changes.single().id)
+
+        val newItem = oldItem.copy(id = "new", product = oldItem.product.copy(stableKey = "manual:new", name = "New product"))
+        upgraded.sync(GrocerySyncRequest("phone", 0, listOf(mutation("add-new", GroceryMutationType.ADD, newItem))))
+        assertEquals(1, GroceryRepository(database).manualSuggestions("New product").size)
+    }
+
     @Test fun `adds merge idempotently and completion remains in history`() {
         val database = Files.createTempDirectory("mampfi-grocery").resolve("test.db").toString()
         val repository = GroceryRepository(database)

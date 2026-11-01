@@ -71,7 +71,7 @@ fun Application.module(
     val repository = MealRepository(databasePath)
     val groceryRepository = GroceryRepository(databasePath)
     val logger = environment.log
-    val catalog = groceryCatalog ?: OpenFoodFactsCatalog(reportError = { logger.warn("Open Food Facts search failed", it) })
+    val catalog = groceryCatalog ?: OpenFoodFactsCatalog(reportError = { logger.warn("Open Food Facts barcode lookup failed", it) })
     val wireJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     install(ContentNegotiation) { json(wireJson) }
     install(CORS) { anyHost(); allowMethod(HttpMethod.Delete); allowMethod(HttpMethod.Put); allowHeader(HttpHeaders.ContentType) }
@@ -113,12 +113,7 @@ fun Application.module(
                     call.respond(emptyList<GrocerySuggestion>())
                     return@post
                 }
-                val local = groceryRepository.manualSuggestions(query)
-                val remote = if (query.length >= 3) catalog.search(query) else emptyList()
-                val merged = (local + remote).distinctBy { it.product.stableKey }.map { suggestion ->
-                    groceryRepository.categoryFor(suggestion.product.stableKey)?.let { suggestion.copy(category = it) } ?: suggestion
-                }
-                call.respond(merged)
+                call.respond(groceryRepository.manualSuggestions(query))
             }
             get("/produkt/{barcode}") {
                 val barcode = call.parameters["barcode"].orEmpty()

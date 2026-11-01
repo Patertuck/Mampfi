@@ -47,7 +47,7 @@ data class GrocerySyncStateEntity(@PrimaryKey val id: Int = 1, val revision: Lon
 
 @Database(
     entities = [MahlzeitEntity::class, AuswaertsEintragEntity::class, GroceryItemEntity::class, GroceryMutationEntity::class, GrocerySuggestionEntity::class, GrocerySyncStateEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class MealDatabase : RoomDatabase() {

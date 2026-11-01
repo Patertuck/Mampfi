@@ -62,6 +62,10 @@ class MainActivity : ComponentActivity() {
                     db.execSQL("CREATE TABLE IF NOT EXISTS `grocery_suggestions` (`stableKey` TEXT NOT NULL, `name` TEXT NOT NULL, `json` TEXT NOT NULL, `lastUsedAt` TEXT NOT NULL, PRIMARY KEY(`stableKey`))")
                     db.execSQL("CREATE TABLE IF NOT EXISTS `grocery_sync_state` (`id` INTEGER NOT NULL, `revision` INTEGER NOT NULL, PRIMARY KEY(`id`))")
                 }
+            }, object : Migration(4, 5) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("DELETE FROM `grocery_suggestions`")
+                }
             })
             .build()
     }
