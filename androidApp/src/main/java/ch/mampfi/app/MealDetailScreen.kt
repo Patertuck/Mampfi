@@ -287,14 +287,15 @@ private fun IngredientEditorDialog(meal: Mahlzeit, dismiss: () -> Unit, save: (M
 @Composable
 internal fun GroceryReviewDialog(meal: Mahlzeit, dismiss: () -> Unit, add: (List<RecipeGrocerySelection>) -> Unit) {
     val baseServings = meal.recipeServings
+    val eligibleIngredients = remember(meal.id, meal.ingredients) { meal.ingredients.withoutIgnoredPantryStaples() }
     var targetServings by remember(meal.id) { mutableStateOf(baseServings?.toString().orEmpty()) }
-    var selected by remember(meal.id) { mutableStateOf(meal.ingredients.map { it.id }.toSet()) }
+    var selected by remember(meal.id, eligibleIngredients) { mutableStateOf(eligibleIngredients.map { it.id }.toSet()) }
     var overrides by remember(meal.id, targetServings) { mutableStateOf(emptyMap<String, String>()) }
     val factor = if (baseServings != null && baseServings > 0) targetServings.toBigDecimalOrNull()?.divide(baseServings.toBigDecimal(), 6, java.math.RoundingMode.HALF_UP) else null
     fun shownAmount(ingredient: RecipeIngredient): String = overrides[ingredient.id]
         ?: ingredient.amount?.decimalOrNull()?.let { amount -> factor?.let { amount.multiply(it).stripTrailingZeros().toPlainString() } }.orEmpty()
-    val selections = meal.ingredients.filter { it.id in selected }.mapNotNull { it.toGrocerySelection(shownAmount(it)) }
-    val amountsValid = meal.ingredients.filter { it.id in selected && it.amount != null }
+    val selections = eligibleIngredients.filter { it.id in selected }.mapNotNull { it.toGrocerySelection(shownAmount(it)) }
+    val amountsValid = eligibleIngredients.filter { it.id in selected && it.amount != null }
         .all { shownAmount(it).replace(',', '.').toDoubleOrNull()?.let { value -> value > 0 } == true }
     val canAdd = factor != null && selected.isNotEmpty() && amountsValid && selections.size == selected.size
     MampfiDialog(
@@ -340,14 +341,21 @@ internal fun GroceryReviewDialog(meal: Mahlzeit, dismiss: () -> Unit, add: (List
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Zutaten auswählen", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("${selected.size} von ${meal.ingredients.size} ausgewählt", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${selected.size} von ${eligibleIngredients.size} ausgewählt", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                TextButton({ selected = if (selected.size == meal.ingredients.size) emptySet() else meal.ingredients.map { it.id }.toSet() }) {
-                    Text(if (selected.size == meal.ingredients.size) "Keine" else "Alle")
+                TextButton({ selected = if (selected.size == eligibleIngredients.size) emptySet() else eligibleIngredients.map { it.id }.toSet() }, enabled = eligibleIngredients.isNotEmpty()) {
+                    Text(if (selected.size == eligibleIngredients.size && eligibleIngredients.isNotEmpty()) "Keine" else "Alle")
                 }
             }
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(meal.ingredients, key = { it.id }) { ingredient ->
+                if (eligibleIngredients.isEmpty()) item {
+                    Text(
+                        "Alle Rezeptzutaten sind übliche Vorräte und werden nicht zum Einkauf hinzugefügt.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                items(eligibleIngredients, key = { it.id }) { ingredient ->
                     val checked = ingredient.id in selected
                     val shown = shownAmount(ingredient)
                     val amountInvalid = checked && ingredient.amount != null && shown.replace(',', '.').toDoubleOrNull()?.let { it <= 0 } != false
