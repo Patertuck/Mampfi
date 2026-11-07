@@ -51,6 +51,7 @@ internal fun MealDetailScreen(
     schedule: (String) -> Unit,
 ) {
     val meal = vm.meals.collectAsState().value.find { it.id == mealId }
+    val groceryItems by groceryVm.items.collectAsState()
     var galleryImageUrl by remember { mutableStateOf<String?>(null) }
     var ingredientEditorVisible by remember { mutableStateOf(false) }
     var manualRecipeEditorVisible by remember { mutableStateOf(false) }
@@ -231,7 +232,7 @@ internal fun MealDetailScreen(
     if (manualRecipeEditorVisible) ManualRecipeEditorDialog(meal, { manualRecipeEditorVisible = false }) { updated ->
         vm.updateMeal(updated) { if (it) manualRecipeEditorVisible = false }
     }
-    if (groceryReviewVisible) GroceryReviewDialog(meal, { groceryReviewVisible = false }) { selections ->
+    if (groceryReviewVisible) GroceryReviewDialog(meal, groceryItems, { groceryReviewVisible = false }) { selections ->
         groceryVm.addRecipeIngredients(selections) { if (it) groceryReviewVisible = false }
     }
     if (reloadConfirmationVisible) AlertDialog(
@@ -285,7 +286,12 @@ private fun IngredientEditorDialog(meal: Mahlzeit, dismiss: () -> Unit, save: (M
 }
 
 @Composable
-internal fun GroceryReviewDialog(meal: Mahlzeit, dismiss: () -> Unit, add: (List<RecipeGrocerySelection>) -> Unit) {
+internal fun GroceryReviewDialog(
+    meal: Mahlzeit,
+    groceryItems: List<GroceryItem>,
+    dismiss: () -> Unit,
+    add: (List<RecipeGrocerySelection>) -> Unit,
+) {
     val baseServings = meal.recipeServings
     val eligibleIngredients = remember(meal.id, meal.ingredients) { meal.ingredients.withoutIgnoredPantryStaples() }
     var targetServings by remember(meal.id) { mutableStateOf(baseServings?.toString().orEmpty()) }
@@ -358,6 +364,9 @@ internal fun GroceryReviewDialog(meal: Mahlzeit, dismiss: () -> Unit, add: (List
                 items(eligibleIngredients, key = { it.id }) { ingredient ->
                     val checked = ingredient.id in selected
                     val shown = shownAmount(ingredient)
+                    val existingMatches = remember(ingredient.name, groceryItems) {
+                        matchingActiveGroceries(ingredient.name, groceryItems)
+                    }
                     val amountInvalid = checked && ingredient.amount != null && shown.replace(',', '.').toDoubleOrNull()?.let { it <= 0 } != false
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
@@ -369,6 +378,15 @@ internal fun GroceryReviewDialog(meal: Mahlzeit, dismiss: () -> Unit, add: (List
                             Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
                                 Text(ingredient.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(ingredient.category.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                existingMatches.forEach { existing ->
+                                    Text(
+                                        "Bereits im Einkaufswagen: ${existing.product.name} (${existing.formattedQuantity()})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.tertiary,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                             if (ingredient.amount != null) OutlinedTextField(
                                 shown,

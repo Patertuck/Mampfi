@@ -231,6 +231,7 @@ internal fun MealDateSelector(selectedDate: LocalDate, blockedDates: Set<LocalDa
 @Composable
 internal fun EditScreen(vm: MealViewModel, groceryVm: GroceryViewModel, date: LocalDate, mealId: String?, entryId: String?, firstRaterName: String, secondRaterName: String, done: () -> Unit) {
     val meals by vm.meals.collectAsState(); val selectedMeal = meals.find { it.id == mealId }; val existingEntry = selectedMeal?.eintraege?.find { it.id == entryId }; var chosen by remember { mutableStateOf<Mahlzeit?>(null) }
+    val groceryItems by groceryVm.items.collectAsState()
     var name by remember(selectedMeal) { mutableStateOf(selectedMeal?.name ?: "") }; var link by remember(selectedMeal) { mutableStateOf(selectedMeal?.rezeptLink ?: "") }
     var note by remember(selectedMeal) { mutableStateOf(selectedMeal?.notiz.orEmpty()) }
     var tags by remember(selectedMeal) { mutableStateOf(selectedMeal?.tags?.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }?.toSet()?.normalizedDietTags() ?: emptySet()) }
@@ -399,7 +400,7 @@ internal fun EditScreen(vm: MealViewModel, groceryVm: GroceryViewModel, date: Lo
     }
     ConfirmDiscardChangesDialog(confirmDiscard, { confirmDiscard = false }, done)
     val ingredientMeal = (selectedMeal ?: chosen)?.copy(rezeptLink = link.ifBlank { null }, recipeServings = recipeServings, ingredients = ingredients, recipeSteps = recipeSteps)
-    if (groceryReviewVisible && ingredientMeal != null) GroceryReviewDialog(ingredientMeal, { groceryReviewVisible = false }) { selections ->
+    if (groceryReviewVisible && ingredientMeal != null) GroceryReviewDialog(ingredientMeal, groceryItems, { groceryReviewVisible = false }) { selections ->
         groceryVm.addRecipeIngredients(selections) { success ->
             if (success) groceryReviewVisible = false
             scope.launch { grocerySnackbar.showSnackbar(if (success) "Zutaten wurden zum Einkauf hinzugefügt." else "Zutaten konnten nicht hinzugefügt werden.") }
