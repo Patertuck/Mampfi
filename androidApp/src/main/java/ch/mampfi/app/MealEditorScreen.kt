@@ -317,30 +317,32 @@ internal fun EditScreen(vm: MealViewModel, groceryVm: GroceryViewModel, date: Lo
     ) {
         item { Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) { Column(Modifier.padding(20.dp)) { Text(when { existingEntry != null -> "Eintrag bearbeiten"; selectedMeal?.istIdee == true -> "Mahlzeit planen"; else -> "Neues Essen" }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(selectedDate.format(DateTimeFormatter.ofPattern("EEEE, d. MMMM yyyy", Locale.GERMAN)), color = MaterialTheme.colorScheme.onPrimaryContainer) } } }
         item { FormSection("Mahlzeit") { OutlinedTextField(name, { value -> name = if ('\n' in value || '\r' in value) normalizePastedMealName(value) else value; expanded = name.isNotBlank() && existingEntry == null }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), isError = validationRequested && validation.nameError != null, supportingText = if (validationRequested && validation.nameError != null) {{ Text(validation.nameError!!) }} else null); if (expanded) meals.filter { it.name.contains(name, true) }.take(5).forEach { meal -> Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { chosen = meal; name = meal.name; link = meal.rezeptLink.orEmpty(); note = meal.notiz.orEmpty(); tags = meal.tags.mapNotNull { runCatching { Tag.valueOf(it) }.getOrNull() }.toSet().normalizedDietTags(); recipeServings = meal.recipeServings; ingredients = meal.ingredients; recipeSteps = meal.recipeSteps; expanded = false }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { meal.letztesBild()?.let { AsyncImage(it, null, Modifier.size(42.dp).clip(MaterialTheme.shapes.small)) }; Column(Modifier.padding(start = 10.dp)) { Text(meal.name, fontWeight = FontWeight.Bold); Text(meal.durchschnitt()?.let { String.format(Locale.GERMANY, "%.1f / 10", it) } ?: "Noch nicht bewertet", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }; RecipeChoiceEditor(link, selectedMeal != null || chosen != null, recipeServings, ingredients, recipeSteps, { link = it }, { manualRecipeEditorVisible = true }, { recipeServings = null; ingredients = emptyList(); recipeSteps = emptyList() }); OutlinedTextField(note, { note = it }, label = { Text("Notiz (optional)") }, placeholder = { Text("z. B. Änderungen am Rezept") }, modifier = Modifier.fillMaxWidth(), minLines = 3, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)) } }
-        (selectedMeal ?: chosen)?.copy(rezeptLink = link.ifBlank { null }, recipeServings = recipeServings, ingredients = ingredients, recipeSteps = recipeSteps)?.takeIf { !it.hatManuellesRezept() }?.let { ingredientMeal -> item {
+        (selectedMeal ?: chosen)?.copy(rezeptLink = link.ifBlank { null }, recipeServings = recipeServings, ingredients = ingredients, recipeSteps = recipeSteps)?.let { ingredientMeal -> item {
             FormSection("Zutaten") {
                 RecipeIngredientSummary(ingredientMeal)
-                OutlinedButton(
-                    onClick = {
-                        if (ingredientMeal.ingredients.isEmpty()) {
-                            extractingIngredients = true
-                            vm.extractIngredients(ingredientMeal) { extracted ->
-                                extractingIngredients = false
-                                if (selectedMeal == null && extracted != null) chosen = ingredientMeal.copy(
-                                    recipeServings = extracted.recipeServings,
-                                    ingredients = extracted.ingredients,
-                                )
-                                if (extracted != null) { recipeServings = extracted.recipeServings; ingredients = extracted.ingredients }
-                            }
-                        } else reloadIngredientsConfirmationVisible = true
-                    },
-                    enabled = canRequestRecipeExtraction(ingredientMeal.rezeptLink, extractingIngredients),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    if (extractingIngredients) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Outlined.Refresh, null)
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (ingredientMeal.ingredients.isEmpty()) "Zutaten laden" else "Zutaten neu laden")
+                if (!ingredientMeal.hatManuellesRezept()) {
+                    OutlinedButton(
+                        onClick = {
+                            if (ingredientMeal.ingredients.isEmpty()) {
+                                extractingIngredients = true
+                                vm.extractIngredients(ingredientMeal) { extracted ->
+                                    extractingIngredients = false
+                                    if (selectedMeal == null && extracted != null) chosen = ingredientMeal.copy(
+                                        recipeServings = extracted.recipeServings,
+                                        ingredients = extracted.ingredients,
+                                    )
+                                    if (extracted != null) { recipeServings = extracted.recipeServings; ingredients = extracted.ingredients }
+                                }
+                            } else reloadIngredientsConfirmationVisible = true
+                        },
+                        enabled = canRequestRecipeExtraction(ingredientMeal.rezeptLink, extractingIngredients),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (extractingIngredients) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Outlined.Refresh, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (ingredientMeal.ingredients.isEmpty()) "Zutaten laden" else "Zutaten neu laden")
+                    }
                 }
                 Button({ groceryReviewVisible = true }, enabled = ingredientMeal.ingredients.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.ShoppingCart, null)
