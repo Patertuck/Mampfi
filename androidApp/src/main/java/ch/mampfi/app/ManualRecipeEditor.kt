@@ -21,24 +21,21 @@ import ch.mampfi.app.data.*
 internal data class ManualRecipeValidation(
     val servingsError: String? = null,
     val ingredientsError: String? = null,
-    val stepsError: String? = null,
     val invalidAmountIds: Set<String> = emptySet(),
     val invalidCustomUnitIds: Set<String> = emptySet(),
 ) {
-    val isValid get() = servingsError == null && ingredientsError == null && stepsError == null &&
+    val isValid get() = servingsError == null && ingredientsError == null &&
         invalidAmountIds.isEmpty() && invalidCustomUnitIds.isEmpty()
 }
 
 internal fun validateManualRecipe(
     servings: String,
     ingredients: List<RecipeIngredient>,
-    steps: List<RecipeStep>,
 ): ManualRecipeValidation {
     val namedIngredients = ingredients.filter { it.name.isNotBlank() }
     return ManualRecipeValidation(
         servingsError = if (servings.toIntOrNull()?.let { it > 0 } == true) null else "Bitte gib eine positive Personenzahl ein.",
         ingredientsError = if (namedIngredients.isNotEmpty()) null else "Füge mindestens eine Zutat hinzu.",
-        stepsError = if (steps.any { it.text.isNotBlank() }) null else "Füge mindestens einen Zubereitungsschritt hinzu.",
         invalidAmountIds = namedIngredients.filter { ingredient ->
             val amount = ingredient.amount?.trim().orEmpty()
             amount.isNotEmpty() && amount.replace(',', '.').toDoubleOrNull()?.let { it > 0 } != true
@@ -158,7 +155,7 @@ internal fun ManualRecipeEditorDialog(meal: Mahlzeit, dismiss: () -> Unit, save:
     var ingredients by remember(meal.id, meal.ingredients) { mutableStateOf(meal.ingredients) }
     var steps by remember(meal.id, meal.recipeSteps) { mutableStateOf(meal.recipeSteps) }
     var validationRequested by remember { mutableStateOf(false) }
-    val validation = validateManualRecipe(servings, ingredients, steps)
+    val validation = validateManualRecipe(servings, ingredients)
     MampfiDialog(
         title = "Manuelles Rezept",
         subtitle = meal.name.takeIf { it.isNotBlank() },
@@ -203,7 +200,6 @@ internal fun ManualRecipeEditorDialog(meal: Mahlzeit, dismiss: () -> Unit, save:
                     HorizontalDivider()
                     Spacer(Modifier.height(8.dp))
                     Text("Zubereitung", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    if (validationRequested && validation.stepsError != null) Text(validation.stepsError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
                 itemsIndexed(steps, key = { _, step -> step.id }) { index, step ->
                     RecipeStepEditRow(

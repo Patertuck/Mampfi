@@ -12,16 +12,15 @@ import kotlin.test.assertTrue
 
 class ManualRecipeEditorTest {
     @Test
-    fun `manual recipe requires servings ingredients and steps`() {
-        val empty = validateManualRecipe("", emptyList(), emptyList())
-        val complete = validateManualRecipe(
+    fun `manual recipe requires servings and ingredients but allows no steps`() {
+        val empty = validateManualRecipe("", emptyList())
+        val withoutSteps = validateManualRecipe(
             "2",
             listOf(RecipeIngredient(name = "Pasta", amount = "200", unit = GroceryUnit.G)),
-            listOf(RecipeStep(text = "Pasta kochen")),
         )
 
         assertFalse(empty.isValid)
-        assertTrue(complete.isValid)
+        assertTrue(withoutSteps.isValid)
     }
 
     @Test
@@ -29,7 +28,7 @@ class ManualRecipeEditorTest {
         val amount = RecipeIngredient(id = "amount", name = "Pasta", amount = "zero")
         val custom = RecipeIngredient(id = "custom", name = "Salz", unit = GroceryUnit.CUSTOM)
 
-        val result = validateManualRecipe("2", listOf(amount, custom), listOf(RecipeStep(text = "Kochen")))
+        val result = validateManualRecipe("2", listOf(amount, custom))
 
         assertEquals(setOf("amount"), result.invalidAmountIds)
         assertEquals(setOf("custom"), result.invalidCustomUnitIds)
